@@ -15,3 +15,7 @@
 - Greasyfork 和 Sleazyfork 页面互链
 
 安装地址: https://github.com/sherlocknieh/PornHubTool/raw/main/dist/pornhub-tool.user.js
+
+## 开发
+
+见 [README-dev.md](./README-dev.md)，代码定位见 [AGENTS.md](./AGENTS.md)。

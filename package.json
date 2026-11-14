@@ -3,7 +3,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "release": "node .dev/release.mjs",
+    "hooks": "git config core.hooksPath .dev/githooks"
   },
   "devDependencies": {
     "vite": "^8.0.11",

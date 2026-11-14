@@ -1,5 +1,16 @@
 # PornHubTool 项目索引
 
+## 快速命令
+
+```bash
+npm run dev                  # 开发调试（浏览器打开 http://localhost:5173）
+npm run build                # 只构建，不动版本号
+npm run hooks                # 启用 .dev/githooks（提交前自动升版本 + 构建）
+npm run release "feat: xxx"  # 升版本 → 构建 → commit → tag（--push 推送，--dry-run 预览）
+```
+
+版本号由 `.dev/bump-and-build.mjs` 按本地时间写入 `vite.config.js`，格式 `YYYY.MM.DD.HHmm`，不要手改，也不要手改 `dist`。
+
 ## 项目概览
 
 这是一个使用 Vite 构建的浏览器用户脚本，用于增强 PornHub 及其他目标站点的浏览体验。源码为原生 JavaScript ES modules，不使用前端框架。
@@ -20,15 +31,21 @@
 - `src/handlers/tekjam.js`：在 Tekjam 相册页恢复移动端视图切换控件，并让图片列表使用响应式多列瀑布流（默认 4 列，中等宽度 3 列，窄屏 2 列）；选择 Large photos 时尊重页面的 `data-aview="large"` 状态并恢复单列。
 - `vite.config.js`：userscript 元数据、匹配域名和构建产物配置。
 - `dist/pornhub-tool.user.js`：构建生成的 userscript 产物；修改源码后通过构建命令更新，不要手工编辑。
+- `.dev/`：一切开发构建相关代码。
+  - `bump-and-build.mjs`：升版本 + 构建，提交前钩子调用。
+  - `release.mjs`：发布（升版本 → 构建 → commit → tag）。
+  - `githooks/pre-commit`：提交前自动升版本 + 构建并 `git add vite.config.js dist`。
+  - `build/`：调试构建产物，已在 `.gitignore` 中。
 
 ## 运行与验证
 
 ```bash
 npm install
+npm run hooks   # 克隆后执行一次，启用提交前自动升版本 + 构建
 npm run build
 ```
 
-`npm run dev` 启动 Vite 开发服务，`npm run preview` 预览构建结果。仓库当前没有单元测试脚本；完成修改后至少运行 `npm run build`。
+`npm run dev` 启动 Vite 开发服务，`npm run preview` 预览构建结果。仓库当前没有单元测试脚本；完成修改后至少运行 `npm run build`，并在目标站点确认控制台无报错、功能可用。
 
 ## 开发约定
 
@@ -36,5 +53,5 @@ npm run build
 - 站点专属 handler 应自行判断当前 URL，不要让不匹配的站点执行 DOM 修改。
 - 页面可能动态加载内容；处理动态元素时复用 `ElementTracker` 的 `track(selector, callback)`，并保证回调可重复触发而不会重复插入 UI。
 - 保持现有的 ES module 写法和单引号风格，避免引入框架或新的运行时依赖。
-- 修改 userscript 匹配域名、版本或元数据时同步检查 `vite.config.js`；不要只修改生成的 `dist/` 文件。
-- 提交时更新 `vite.config.js` 中的版本号 (使用当前时间戳，例如 `2026.06.15.1800`), 并完成构建推送到仓库。
+- 修改 userscript 匹配域名或元数据时同步检查 `vite.config.js`；不要只修改生成的 `dist/` 文件。
+- 版本号、`dist` 产物由 `.dev/githooks/pre-commit`（或 `npm run release`）统一生成；源码、版本号与产物在同一提交里。
