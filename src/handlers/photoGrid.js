@@ -7,7 +7,8 @@ const GALLERIES = [
     // 相册页底部 Related Galleries 由脚本异步填充，与主图库用同一套砌砖布局
     { host: 'hotnakedwomen.com', containers: ['#main-grid', '#related-container'] },
     { host: 'hdpornpictures.com', containers: ['#main-thumbs-grid', '#grid-secondary'] },
-    { host: 'pornpics.com', containers: ['#tiles'] },
+    // #rel-main 是相册页底部的相关图库，同样由 wookmark 写内联定位
+    { host: 'pornpics.com', containers: ['#tiles', '#rel-main'] },
 ];
 
 const GRID_ATTR = 'data-photo-grid';
