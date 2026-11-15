@@ -4,5 +4,5 @@
 // 字母轮廓得以保留。正常主题下这点透明肉眼几乎看不出，圆仍是黑的。
 export const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
     <circle cx="32" cy="32" r="32" fill="#000" fill-opacity="0.75"/>
-    <text x="32" y="42" text-anchor="middle" font-size="32" fill="#fff">PH</text>
+    <text x="32" y="32" text-anchor="middle" dominant-baseline="central" font-size="32" fill="#fff">PH</text>
 </svg>`;

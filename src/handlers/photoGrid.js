@@ -1,17 +1,11 @@
 import ElementTracker from '../core/ElementTracker.js';
 
-// 各站点只登记图库容器：脚本用绝对定位/内联宽高砌砖，靠共享样式强制改列。
-const GALLERIES = [
-    // .static 排除首页的 slider/轮播，只处理静态图库列表
-    { host: 'elitebabes.com', containers: ['.list-gallery.css.static'] },
-    // 相册页底部 Related Galleries 由脚本异步填充，与主图库用同一套砌砖布局
-    { host: 'hotnakedwomen.com', containers: ['#main-grid', '#related-container'] },
-    { host: 'hdpornpictures.com', containers: ['#main-thumbs-grid', '#grid-secondary'] },
-    // #rel-main 是相册页底部的相关图库，同样由 wookmark 写内联定位
-    { host: 'pornpics.com', containers: ['#tiles', '#rel-main'] },
-];
+// 站点差异只在域名：图库容器按结构特征自动识别，页面改版或新增区块都不必再登记 id。
+const HOSTS = ['elitebabes.com', 'hotnakedwomen.com', 'hdpornpictures.com', 'pornpics.com'];
 
 const GRID_ATTR = 'data-photo-grid';
+// 格子太少的容器更可能是推荐位、广告位，不当图库处理
+const MIN_ITEMS = 6;
 
 // 窄屏两列；桌面保持站点原布局，不受影响。
 const STYLE_TEXT = `
@@ -77,20 +71,46 @@ const STYLE_TEXT = `
     }
 `;
 
-function matchSite(host) {
-    return GALLERIES.find(site => host === site.host || host.endsWith(`.${site.host}`));
+function matchHost(host) {
+    return HOSTS.some(item => host === item || host.endsWith(`.${item}`));
 }
 
+/**
+ * 图库容器与单张卡片都是站点的砌砖脚本定位的，因此判定依据是「被脚本接管」的痕迹：
+ * 容器自身或子项带内联 position/transform，且子项里成片是图片链接。
+ * 这样首页图库、相册页底部相关图库、以后新增的区块都能认出来。
+ */
+function isMasonryItem(el) {
+    if (!el.matches('a, figure, div, li')) return false;
+    const style = el.getAttribute('style') || '';
+    return /position\s*:\s*(absolute|fixed)/.test(style) || /translate/.test(style);
+}
+
+function hasImageLinks(container) {
+    const items = [...container.children];
+    if (items.length < MIN_ITEMS) return false;
+    const linked = items.filter(item => item.querySelector('a img, a picture img, img'));
+    return linked.length >= MIN_ITEMS && linked.length / items.length >= 0.6;
+}
+
+function isGalleryContainer(el) {
+    if (!el.matches('div, ul, section, main')) return false;
+    if (el.hasAttribute(GRID_ATTR)) return false;
+    // 容器自己就被脚本内联定位（含 translate 到屏幕外的隐藏手法）
+    const style = el.getAttribute('style') || '';
+    const takenOver = /position\s*:\s*(absolute|fixed)/.test(style) || /translate/.test(style);
+    if (!takenOver && ![...el.children].some(isMasonryItem)) return false;
+    return hasImageLinks(el);
+}
+
+const GALLERY_SELECTOR = 'div, ul, section, main';
+
 export default function initPhotoGridHandler() {
-    const site = matchSite(window.location.hostname);
-    if (!site) return;
+    if (!matchHost(window.location.hostname)) return;
 
     const style = document.createElement('style');
     style.textContent = STYLE_TEXT;
     (document.head || document.documentElement).appendChild(style);
 
-    const tracker = new ElementTracker();
-    site.containers.forEach(selector => {
-        tracker.track(selector, el => el.setAttribute(GRID_ATTR, ''));
-    });
+    new ElementTracker().trackStructure(isGalleryContainer, el => el.setAttribute(GRID_ATTR, ''), GALLERY_SELECTOR);
 }

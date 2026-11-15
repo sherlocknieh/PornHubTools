@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         PornhubTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.15.1557
+// @version      2026.11.15.1605
 // @description  增强一些XX网站的浏览体验
-// @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22%23000%22%20fill-opacity%3D%220.75%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2242%22%20text-anchor%3D%22middle%22%20font-size%3D%2232%22%20fill%3D%22%23fff%22%3EPH%3C%2Ftext%3E%0A%3C%2Fsvg%3E
+// @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22%23000%22%20fill-opacity%3D%220.75%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2232%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%20font-size%3D%2232%22%20fill%3D%22%23fff%22%3EPH%3C%2Ftext%3E%0A%3C%2Fsvg%3E
 // @match        https://greasyfork.org/*
 // @match        https://sleazyfork.org/*
 // @match        https://*.pornhub.com/*
@@ -28,10 +28,16 @@
 			this.root = document.body;
 			this.seen = new WeakSet();
 			this.selectorMap = new Map();
+			this.structuralHandlers = [];
+			this.seenStructural = new WeakSet();
+			this.candidates = new Set();
+			this.scanTimer = null;
 			this.observer = new MutationObserver(this._handleMutations.bind(this));
 			this.observer.observe(this.root, {
 				childList: true,
-				subtree: true
+				subtree: true,
+				attributes: true,
+				attributeFilter: ["style"]
 			});
 		}
 		track(selector, callback) {
@@ -44,19 +50,73 @@
 			});
 			return this;
 		}
-		_handleMutations(mutationsList) {
-			for (const mutation of mutationsList) for (const node of mutation.addedNodes) if (node.nodeType === 1) this.selectorMap.forEach((callback, selector) => {
-				if (node.matches?.(selector) && !this.seen.has(node)) {
-					this.seen.add(node);
-					callback(node);
-				}
-				node.querySelectorAll?.(selector)?.forEach((elem) => {
-					if (!this.seen.has(elem)) {
-						this.seen.add(elem);
-						callback(elem);
-					}
-				});
+		trackStructure(test, callback, selector = "*") {
+			this.structuralHandlers.push({
+				test,
+				callback,
+				selector
 			});
+			this.structureSelector = null;
+			this._scheduleStructuralScan();
+			return this;
+		}
+		_selectorForStructure() {
+			if (!this.structureSelector) this.structureSelector = [...new Set(this.structuralHandlers.map((h) => h.selector))].join(",");
+			return this.structureSelector;
+		}
+		_scheduleStructuralScan() {
+			if (this.scanTimer) return;
+			this.scanTimer = setTimeout(() => {
+				this.scanTimer = null;
+				this._scanStructure();
+			}, 150);
+		}
+		_scanStructure() {
+			const batch = [...this.candidates];
+			this.candidates.clear();
+			if (!this.scannedOnce) {
+				this.scannedOnce = true;
+				this.root.querySelectorAll(this._selectorForStructure()).forEach((el) => batch.push(el));
+			}
+			if (!batch.length) return;
+			for (const { test, callback } of this.structuralHandlers) for (const el of batch) {
+				if (!el.isConnected || this.seenStructural.has(el)) continue;
+				if (!test(el)) continue;
+				this.seenStructural.add(el);
+				callback(el);
+			}
+		}
+		_collectCandidates(node, deep = false) {
+			if (node.nodeType !== 1) return;
+			this.candidates.add(node);
+			let parent = node.parentElement;
+			for (let i = 0; i < 2 && parent && parent !== this.root; i++) {
+				this.candidates.add(parent);
+				parent = parent.parentElement;
+			}
+			if (deep) node.querySelectorAll(this._selectorForStructure()).forEach((el) => this.candidates.add(el));
+		}
+		_handleMutations(mutationsList) {
+			const structural = this.structuralHandlers.length > 0;
+			for (const mutation of mutationsList) {
+				if (structural) this._collectCandidates(mutation.target);
+				for (const node of mutation.addedNodes) if (node.nodeType === 1) {
+					this.selectorMap.forEach((callback, selector) => {
+						if (node.matches?.(selector) && !this.seen.has(node)) {
+							this.seen.add(node);
+							callback(node);
+						}
+						node.querySelectorAll?.(selector)?.forEach((elem) => {
+							if (!this.seen.has(elem)) {
+								this.seen.add(elem);
+								callback(elem);
+							}
+						});
+					});
+					if (structural) this._collectCandidates(node, true);
+				}
+			}
+			if (structural) this._scheduleStructuralScan();
 		}
 	};
 	function initVideoHandler() {
@@ -82,7 +142,7 @@
 	}
 	var favicon = "data:image/svg+xml;base64," + btoa(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
     <circle cx="32" cy="32" r="32" fill="#000" fill-opacity="0.75"/>
-    <text x="32" y="42" text-anchor="middle" font-size="32" fill="#fff">PH</text>
+    <text x="32" y="32" text-anchor="middle" dominant-baseline="central" font-size="32" fill="#fff">PH</text>
 </svg>`);
 	function replaceFavicon() {
 		document.querySelectorAll("link[rel*=\"icon\"]").forEach((link) => {
@@ -273,25 +333,14 @@
     `;
 		(document.head || document.documentElement).appendChild(style);
 	}
-	var GALLERIES = [
-		{
-			host: "elitebabes.com",
-			containers: [".list-gallery.css.static"]
-		},
-		{
-			host: "hotnakedwomen.com",
-			containers: ["#main-grid", "#related-container"]
-		},
-		{
-			host: "hdpornpictures.com",
-			containers: ["#main-thumbs-grid", "#grid-secondary"]
-		},
-		{
-			host: "pornpics.com",
-			containers: ["#tiles", "#rel-main"]
-		}
+	var HOSTS = [
+		"elitebabes.com",
+		"hotnakedwomen.com",
+		"hdpornpictures.com",
+		"pornpics.com"
 	];
 	var GRID_ATTR = "data-photo-grid";
+	var MIN_ITEMS = 6;
 	var STYLE_TEXT = `
     @media (max-width: 767px) {
         [${GRID_ATTR}] {
@@ -354,19 +403,34 @@
         }
     }
 `;
-	function matchSite(host) {
-		return GALLERIES.find((site) => host === site.host || host.endsWith(`.${site.host}`));
+	function matchHost(host) {
+		return HOSTS.some((item) => host === item || host.endsWith(`.${item}`));
 	}
+	function isMasonryItem(el) {
+		if (!el.matches("a, figure, div, li")) return false;
+		const style = el.getAttribute("style") || "";
+		return /position\s*:\s*(absolute|fixed)/.test(style) || /translate/.test(style);
+	}
+	function hasImageLinks(container) {
+		const items = [...container.children];
+		if (items.length < MIN_ITEMS) return false;
+		const linked = items.filter((item) => item.querySelector("a img, a picture img, img"));
+		return linked.length >= MIN_ITEMS && linked.length / items.length >= .6;
+	}
+	function isGalleryContainer(el) {
+		if (!el.matches("div, ul, section, main")) return false;
+		if (el.hasAttribute(GRID_ATTR)) return false;
+		const style = el.getAttribute("style") || "";
+		if (!(/position\s*:\s*(absolute|fixed)/.test(style) || /translate/.test(style)) && ![...el.children].some(isMasonryItem)) return false;
+		return hasImageLinks(el);
+	}
+	var GALLERY_SELECTOR = "div, ul, section, main";
 	function initPhotoGridHandler() {
-		const site = matchSite(window.location.hostname);
-		if (!site) return;
+		if (!matchHost(window.location.hostname)) return;
 		const style = document.createElement("style");
 		style.textContent = STYLE_TEXT;
 		(document.head || document.documentElement).appendChild(style);
-		const tracker = new ElementTracker();
-		site.containers.forEach((selector) => {
-			tracker.track(selector, (el) => el.setAttribute(GRID_ATTR, ""));
-		});
+		new ElementTracker().trackStructure(isGalleryContainer, (el) => el.setAttribute(GRID_ATTR, ""), GALLERY_SELECTOR);
 	}
 	initVideoHandler();
 	initPornhubHandler();
