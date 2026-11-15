@@ -19,6 +19,7 @@ npm run release "feat: xxx"  # 升版本 → 构建 → commit → tag（--push 
 
 - `src/main.js`：唯一运行入口，按顺序初始化所有 handler。
 - `src/core/ElementTracker.js`：基于 `MutationObserver` 的动态 DOM 元素跟踪器；当前实现为单例，避免各 handler 重复监听。
+- `src/assets/icon.js`：脚本图标 SVG，`@icon` 与站点 favicon 共用；纯 path 绘制，不依赖 `<text>`（部分扩展面板的 SVG 渲染会丢弃文本元素）。
 - `src/handlers/video.js`：通用 `<video>` 处理；将视频音量设为 50%、取消静音，并在 Musedam 页面尝试自动播放。
 - `src/handlers/pornhub/index.js`：PornHub handler 的聚合入口；负责域名判断，并组合年龄验证、背景播放、favicon、标题、GIF 链接和搜索切换功能。
 - `src/handlers/pornhub/`：
