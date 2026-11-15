@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PornhubTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.15.1609
+// @version      2026.11.15.1629
 // @description  增强一些XX网站的浏览体验
 // @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22%23000%22%20fill-opacity%3D%220.75%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2232%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%20font-size%3D%2232%22%20fill%3D%22%23fff%22%3EPH%3C%2Ftext%3E%0A%3C%2Fsvg%3E
 // @match        https://greasyfork.org/*
@@ -333,28 +333,6 @@
     `;
 		(document.head || document.documentElement).appendChild(style);
 	}
-	var MATCH_PATTERNS = [
-		"https://greasyfork.org/*",
-		"https://sleazyfork.org/*",
-		"https://*.pornhub.com/*",
-		"https://musedam.cc/*",
-		"https://nsfw.xxx/*",
-		"https://rule34.xxx/*",
-		"https://anacams.com/post/*",
-		"https://www.tekjam.com/album/*",
-		"https://*.elitebabes.com/*",
-		"https://*.hotnakedwomen.com/*",
-		"https://*.hdpornpictures.com/*",
-		"https://*.pornpics.com/*"
-	];
-	function patternToRegExp(pattern) {
-		const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-		return new RegExp(`^${escaped.replace(/\*\\\./g, "(?:[^/]+\\.)?").replace(/\*/g, ".*")}$`);
-	}
-	var PATTERN_REGEXPS = MATCH_PATTERNS.map(patternToRegExp);
-	function isSupportedUrl(url = window.location.href) {
-		return PATTERN_REGEXPS.some((re) => re.test(url));
-	}
 	var GRID_ATTR = "data-photo-grid";
 	var MIN_ITEMS = 6;
 	var STYLE_TEXT = `
@@ -422,7 +400,7 @@
 	function isMasonryItem(el) {
 		if (!el.matches("a, figure, div, li")) return false;
 		const style = el.getAttribute("style") || "";
-		return /position\s*:\s*(absolute|fixed)/.test(style) || /translate/.test(style);
+		return /position\s*:\s*(absolute|fixed)/.test(style) || /translate/.test(style) || /--(?:w|h)\s*:/.test(style);
 	}
 	function hasImageLinks(container) {
 		const items = [...container.children];
@@ -439,7 +417,6 @@
 	}
 	var GALLERY_SELECTOR = "div, ul, section, main";
 	function initPhotoGridHandler() {
-		if (!isSupportedUrl()) return;
 		const style = document.createElement("style");
 		style.textContent = STYLE_TEXT;
 		(document.head || document.documentElement).appendChild(style);

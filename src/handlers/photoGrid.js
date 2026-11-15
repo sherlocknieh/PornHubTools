@@ -1,7 +1,6 @@
 import ElementTracker from '../core/ElementTracker.js';
-import { isSupportedUrl } from '../core/sites.js';
 
-// 不再登记站点或容器 id：@match 覆盖的页面都会自动检测图库结构。
+// 不再登记站点或容器 id：脚本管理器的 @match 决定作用域，页面内自动检测图库结构。
 const GRID_ATTR = 'data-photo-grid';
 // 格子太少的容器更可能是推荐位、广告位，不当图库处理
 const MIN_ITEMS = 6;
@@ -78,7 +77,9 @@ const STYLE_TEXT = `
 function isMasonryItem(el) {
     if (!el.matches('a, figure, div, li')) return false;
     const style = el.getAttribute('style') || '';
-    return /position\s*:\s*(absolute|fixed)/.test(style) || /translate/.test(style);
+    return /position\s*:\s*(absolute|fixed)/.test(style)
+        || /translate/.test(style)
+        || /--(?:w|h)\s*:/.test(style);
 }
 
 function hasImageLinks(container) {
@@ -101,8 +102,6 @@ function isGalleryContainer(el) {
 const GALLERY_SELECTOR = 'div, ul, section, main';
 
 export default function initPhotoGridHandler() {
-    if (!isSupportedUrl()) return;
-
     const style = document.createElement('style');
     style.textContent = STYLE_TEXT;
     (document.head || document.documentElement).appendChild(style);
