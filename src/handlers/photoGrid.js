@@ -1,8 +1,7 @@
 import ElementTracker from '../core/ElementTracker.js';
+import { isSupportedUrl } from '../core/sites.js';
 
-// 站点差异只在域名：图库容器按结构特征自动识别，页面改版或新增区块都不必再登记 id。
-const HOSTS = ['elitebabes.com', 'hotnakedwomen.com', 'hdpornpictures.com', 'pornpics.com'];
-
+// 不再登记站点或容器 id：@match 覆盖的页面都会自动检测图库结构。
 const GRID_ATTR = 'data-photo-grid';
 // 格子太少的容器更可能是推荐位、广告位，不当图库处理
 const MIN_ITEMS = 6;
@@ -71,10 +70,6 @@ const STYLE_TEXT = `
     }
 `;
 
-function matchHost(host) {
-    return HOSTS.some(item => host === item || host.endsWith(`.${item}`));
-}
-
 /**
  * 图库容器与单张卡片都是站点的砌砖脚本定位的，因此判定依据是「被脚本接管」的痕迹：
  * 容器自身或子项带内联 position/transform，且子项里成片是图片链接。
@@ -106,7 +101,7 @@ function isGalleryContainer(el) {
 const GALLERY_SELECTOR = 'div, ul, section, main';
 
 export default function initPhotoGridHandler() {
-    if (!matchHost(window.location.hostname)) return;
+    if (!isSupportedUrl()) return;
 
     const style = document.createElement('style');
     style.textContent = STYLE_TEXT;

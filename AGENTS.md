@@ -30,8 +30,9 @@ npm run release "feat: xxx"  # 升版本 → 构建 → commit → tag（--push 
   - `searchSwitch.js`：在 Video/GIF 搜索页之间跳转或添加切换按钮；跳转 GIF 搜索页时把搜索词清理为字母、数字和空格。
 - `src/handlers/greasyfork.js`：在 GreasyFork 与 SleazyFork 页面之间添加互链。
 - `src/handlers/tekjam.js`：在 Tekjam 相册页恢复移动端视图切换控件，并让图片列表使用响应式多列瀑布流（默认 4 列，中等宽度 3 列，窄屏 2 列）；选择 Large photos 时尊重页面的 `data-aview="large"` 状态并恢复单列。
-- `src/handlers/photoGrid.js`：通用图库窄屏多列（≤767px 变两列）；`GALLERIES` 登记每个站点的域名与图库容器选择器，站点若用砌砖脚本写内联定位，由共享样式统一覆盖，适配新站点只需加一行。
-- `vite.config.js`：userscript 元数据、匹配域名和构建产物配置。
+- `src/core/sites.js`：`@match` 列表的唯一真源；构建时供 `vite.config.js` 生成元数据，运行期用 `isSupportedUrl()` 判断当前页面是否受支持，新增站点只改这一处。
+- `src/handlers/photoGrid.js`：通用图库窄屏多列（≤767px 变两列）；不登记站点或容器 id，只要页面在 `@match` 内就在整页按结构特征识别图库（容器或子项被砌砖脚本写了内联定位，且子项成片是图片链接），命中后由共享样式统一覆盖。
+- `vite.config.js`：userscript 元数据、匹配域名和构建产物配置；`match` 直接引用 `src/core/sites.js`。
 - `dist/pornhub-tools.user.js`：构建生成的 userscript 产物；修改源码后通过构建命令更新，不要手工编辑。
 - `.dev/`：一切开发构建相关代码。
   - `bump-and-build.mjs`：升版本 + 构建，提交前钩子调用。
@@ -55,5 +56,5 @@ npm run build
 - 站点专属 handler 应自行判断当前 URL，不要让不匹配的站点执行 DOM 修改。
 - 页面可能动态加载内容；处理动态元素时复用 `ElementTracker` 的 `track(selector, callback)`，并保证回调可重复触发而不会重复插入 UI。
 - 保持现有的 ES module 写法和单引号风格，避免引入框架或新的运行时依赖。
-- 修改 userscript 匹配域名或元数据时同步检查 `vite.config.js`；不要只修改生成的 `dist/` 文件。
+- 修改 userscript 匹配域名时改 `src/core/sites.js`（`vite.config.js` 会自动引用），不要只修改生成的 `dist/` 文件。
 - 版本号、`dist` 产物由 `.dev/githooks/pre-commit`（或 `npm run release`）统一生成；源码、版本号与产物在同一提交里。
