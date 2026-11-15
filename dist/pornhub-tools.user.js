@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         PornhubTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.15.1530
+// @version      2026.11.15.1542
 // @description  增强一些XX网站的浏览体验
-// @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%20%20%3Cg%20fill%3D%22none%22%20stroke%3D%22%23ff9000%22%20stroke-width%3D%225%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%0A%20%20%20%20%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2229%22%2F%3E%0A%20%20%20%20%20%20%20%20%3Cpath%20d%3D%22M18%2042V22h6.5a6.5%206.5%200%200%201%200%2013H18%22%2F%3E%0A%20%20%20%20%20%20%20%20%3Cpath%20d%3D%22M37%2022v20M46%2022v20M37%2032h9%22%2F%3E%0A%20%20%20%20%3C%2Fg%3E%0A%3C%2Fsvg%3E
+// @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22%23000%22%2F%3E%0A%20%20%20%20%3Cg%20fill%3D%22none%22%20stroke%3D%22%23fff%22%20stroke-width%3D%225%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%0A%20%20%20%20%20%20%20%20%3Cpath%20d%3D%22M13%2044V22h9a7.5%207.5%200%200%201%200%2015h-9%22%2F%3E%0A%20%20%20%20%20%20%20%20%3Cpath%20d%3D%22M37%2022v22M50%2022v22M37%2033h13%22%2F%3E%0A%20%20%20%20%3C%2Fg%3E%0A%3C%2Fsvg%3E
 // @match        https://greasyfork.org/*
 // @match        https://sleazyfork.org/*
 // @match        https://*.pornhub.com/*
@@ -13,7 +13,6 @@
 // @match        https://anacams.com/post/*
 // @match        https://www.tekjam.com/album/*
 // @match        https://*.elitebabes.com/*
-// @match        https://hotnakedwomen.com/*
 // @match        https://*.hotnakedwomen.com/*
 // @match        https://*.hdpornpictures.com/*
 // @match        https://*.pornpics.com/*
@@ -82,10 +81,10 @@
 		};
 	}
 	var favicon = "data:image/svg+xml;base64," + btoa(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-    <g fill="none" stroke="#ff9000" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="32" cy="32" r="29"/>
-        <path d="M18 42V22h6.5a6.5 6.5 0 0 1 0 13H18"/>
-        <path d="M37 22v20M46 22v20M37 32h9"/>
+    <circle cx="32" cy="32" r="32" fill="#000"/>
+    <g fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M13 44V22h9a7.5 7.5 0 0 1 0 15h-9"/>
+        <path d="M37 22v22M50 22v22M37 33h13"/>
     </g>
 </svg>`);
 	function replaceFavicon() {
@@ -301,6 +300,9 @@
         [${GRID_ATTR}] {
             display: block !important;
             position: static !important;
+            /* 站点把容器内联 translate 到屏幕外，不清掉整块图库会跑到视口右侧 */
+            transform: none !important;
+            translate: none !important;
             left: auto !important;
             right: auto !important;
             top: auto !important;

@@ -17,6 +17,9 @@ const STYLE_TEXT = `
         [${GRID_ATTR}] {
             display: block !important;
             position: static !important;
+            /* 站点把容器内联 translate 到屏幕外，不清掉整块图库会跑到视口右侧 */
+            transform: none !important;
+            translate: none !important;
             left: auto !important;
             right: auto !important;
             top: auto !important;

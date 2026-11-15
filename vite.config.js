@@ -11,7 +11,7 @@ export default defineConfig({
       userscript: {
         name: 'PornhubTools',
         namespace: 'https://github.com/sherlocknieh/',
-        version: '2026.11.15.1530',
+        version: '2026.11.15.1542',
         description: '增强一些XX网站的浏览体验',
         icon: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(ICON_SVG),
         match: [
@@ -24,7 +24,6 @@ export default defineConfig({
           'https://anacams.com/post/*',
           'https://www.tekjam.com/album/*',
           'https://*.elitebabes.com/*',
-          'https://hotnakedwomen.com/*',
           'https://*.hotnakedwomen.com/*',
           'https://*.hdpornpictures.com/*',
           'https://*.pornpics.com/*'
