@@ -4,8 +4,9 @@ import ElementTracker from '../core/ElementTracker.js';
 const GALLERIES = [
     // .static 排除首页的 slider/轮播，只处理静态图库列表
     { host: 'elitebabes.com', containers: ['.list-gallery.css.static'] },
-    { host: 'hotnakedwomen.com', containers: ['#main-grid'] },
-    { host: 'hdpornpictures.com', containers: ['#main-thumbs-grid'] },
+    // 相册页底部 Related Galleries 由脚本异步填充，与主图库用同一套砌砖布局
+    { host: 'hotnakedwomen.com', containers: ['#main-grid', '#related-container'] },
+    { host: 'hdpornpictures.com', containers: ['#main-thumbs-grid', '#grid-secondary'] },
     { host: 'pornpics.com', containers: ['#tiles'] },
 ];
 
