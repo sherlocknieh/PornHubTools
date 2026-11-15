@@ -31,7 +31,7 @@ node .dev/dev-kit.mjs --bundle .dev/build/pornhub-tool.user.js --build "vite bui
 - `npm run release "feat: …"`：升版本 → 构建 → commit → tag；`--push` 推送，`--dry-run` 只预览版本号
 - `npm run build`：只构建，不改版本号
 
-源码、版本号与 `dist/pornhub-tool.user.js` 永远在同一个提交里。
+源码、版本号与 `dist/pornhub-tools.user.js` 永远在同一个提交里。
 
 ## 结构
 

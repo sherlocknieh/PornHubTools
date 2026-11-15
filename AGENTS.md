@@ -29,8 +29,9 @@ npm run release "feat: xxx"  # 升版本 → 构建 → commit → tag（--push 
   - `searchSwitch.js`：在 Video/GIF 搜索页之间跳转或添加切换按钮；跳转 GIF 搜索页时把搜索词清理为字母、数字和空格。
 - `src/handlers/greasyfork.js`：在 GreasyFork 与 SleazyFork 页面之间添加互链。
 - `src/handlers/tekjam.js`：在 Tekjam 相册页恢复移动端视图切换控件，并让图片列表使用响应式多列瀑布流（默认 4 列，中等宽度 3 列，窄屏 2 列）；选择 Large photos 时尊重页面的 `data-aview="large"` 状态并恢复单列。
+- `src/handlers/photoGrid.js`：通用图库窄屏多列（≤767px 变两列）；`GALLERIES` 登记每个站点的域名与图库容器选择器，站点若用砌砖脚本写内联定位，由共享样式统一覆盖，适配新站点只需加一行。
 - `vite.config.js`：userscript 元数据、匹配域名和构建产物配置。
-- `dist/pornhub-tool.user.js`：构建生成的 userscript 产物；修改源码后通过构建命令更新，不要手工编辑。
+- `dist/pornhub-tools.user.js`：构建生成的 userscript 产物；修改源码后通过构建命令更新，不要手工编辑。
 - `.dev/`：一切开发构建相关代码。
   - `bump-and-build.mjs`：升版本 + 构建，提交前钩子调用。
   - `release.mjs`：发布（升版本 → 构建 → commit → tag）。

@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         PornhubTool
+// @name         PornhubTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.14.1629
+// @version      2026.11.15.1516
 // @description  增强一些XX网站的浏览体验
 // @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2264%22%20height%3D%2264%22%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22black%22%2F%3E%3Ctext%20x%3D%2232%22%20y%3D%2242%22%20text-anchor%3D%22middle%22%20font-size%3D%2232%22%20fill%3D%22white%22%3EPH%3C%2Ftext%3E%3C%2Fsvg%3E
 // @match        https://greasyfork.org/*
@@ -12,6 +12,11 @@
 // @match        https://rule34.xxx/*
 // @match        https://anacams.com/post/*
 // @match        https://www.tekjam.com/album/*
+// @match        https://*.elitebabes.com/*
+// @match        https://hotnakedwomen.com/*
+// @match        https://*.hotnakedwomen.com/*
+// @match        https://*.hdpornpictures.com/*
+// @match        https://*.pornpics.com/*
 // @grant        none
 // ==/UserScript==
 
@@ -270,8 +275,101 @@
     `;
 		(document.head || document.documentElement).appendChild(style);
 	}
+	var GALLERIES = [
+		{
+			host: "elitebabes.com",
+			containers: [".list-gallery.css.static"]
+		},
+		{
+			host: "hotnakedwomen.com",
+			containers: ["#main-grid"]
+		},
+		{
+			host: "hdpornpictures.com",
+			containers: ["#main-thumbs-grid"]
+		},
+		{
+			host: "pornpics.com",
+			containers: ["#tiles"]
+		}
+	];
+	var GRID_ATTR = "data-photo-grid";
+	var STYLE_TEXT = `
+    @media (max-width: 767px) {
+        [${GRID_ATTR}] {
+            display: block !important;
+            position: static !important;
+            left: auto !important;
+            right: auto !important;
+            top: auto !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            padding: 0 !important;
+            column-count: 2 !important;
+            column-gap: 6px !important;
+        }
+
+        /* 覆盖砌砖脚本写入的 position/left/top/width/opacity */
+        [${GRID_ATTR}] > * {
+            position: relative !important;
+            left: auto !important;
+            top: auto !important;
+            float: none !important;
+            display: block !important;
+            width: auto !important;
+            min-width: 0 !important;
+            max-width: none !important;
+            height: auto !important;
+            min-height: 0 !important;
+            aspect-ratio: auto !important;
+            margin: 0 0 6px !important;
+            padding: 0 !important;
+            border: 0 !important;
+            transform: none !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+            break-inside: avoid;
+            box-sizing: border-box;
+        }
+
+        [${GRID_ATTR}] > * a,
+        [${GRID_ATTR}] > * figure {
+            display: block !important;
+            position: relative !important;
+            width: 100% !important;
+            height: auto !important;
+            min-height: 0 !important;
+            margin: 0 !important;
+        }
+
+        [${GRID_ATTR}] > * img {
+            display: block !important;
+            width: 100% !important;
+            height: auto !important;
+            max-width: none !important;
+        }
+    }
+`;
+	function matchSite(host) {
+		return GALLERIES.find((site) => host === site.host || host.endsWith(`.${site.host}`));
+	}
+	function initPhotoGridHandler() {
+		const site = matchSite(window.location.hostname);
+		if (!site) return;
+		const style = document.createElement("style");
+		style.textContent = STYLE_TEXT;
+		(document.head || document.documentElement).appendChild(style);
+		const tracker = new ElementTracker();
+		site.containers.forEach((selector) => {
+			tracker.track(selector, (el) => el.setAttribute(GRID_ATTR, ""));
+		});
+	}
 	initVideoHandler();
 	initPornhubHandler();
 	initGreasyforkHandler();
 	initTekjamHandler();
+	initPhotoGridHandler();
 })();

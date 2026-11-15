@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CONFIG_PATH = path.join(root, 'vite.config.js');
-const DIST_PATH = path.join(root, 'dist/pornhub-tool.user.js');
+const DIST_PATH = path.join(root, 'dist/pornhub-tools.user.js');
 const VERSION_PATTERN = /(userscript:\s*\{[\s\S]*?version:\s*')([^']+)(')/;
 
 const dryRun = process.argv.includes('--dry-run');

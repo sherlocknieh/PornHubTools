@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BUMP_SCRIPT = path.join(root, '.dev/bump-and-build.mjs');
-const DIST_PATH = path.join(root, 'dist/pornhub-tool.user.js');
+const DIST_PATH = path.join(root, 'dist/pornhub-tools.user.js');
 
 const argv = process.argv.slice(2);
 const flags = new Set(argv.filter((arg) => arg.startsWith('--')));
