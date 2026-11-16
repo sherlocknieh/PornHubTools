@@ -1,12 +1,25 @@
 # PornHubTool 项目索引
 
+> 本文件是定位文件的速查表，不是项目介绍。新增文件、调整职责或改动选择器契约时，同步更新这里。
+
+## 常见任务 → 先读哪些文件
+
+| 任务 | 先读 |
+| --- | --- |
+| 新增站点适配 | `src/core/sites.js`（`@match` 真源）→ `src/handlers/` 里的同类 handler → `src/main.js` |
+| 改 PornHub 的某个控件 | `src/handlers/pornhub/dom.js`（选择器契约）→ 对应 handler |
+| 处理动态插入的元素 | `src/core/ElementTracker.js` → `src/handlers/photoGrid.js`（结构型跟踪的用法） |
+| 调图库窄屏布局 | `src/handlers/photoGrid.js`（装箱算法、样式、清理都在这一处） |
+| 改版本号 / 发布 | 只跑 `npm run release`，细节看 `.dev/bump-and-build.mjs` 与 `.dev/release.mjs` |
+| 脚本不生效、控制台没日志 | `src/main.js` 的初始化与 teardown，再按 `README-dev.md` 查 CSP |
+
 ## 快速命令
 
 ```bash
 npm run dev                  # 开发调试（浏览器打开 http://localhost:5173）
 npm run build                # 只构建，不动版本号
 npm run hooks                # 启用 .dev/githooks（提交前自动升版本 + 构建）
-npm run release "feat: xxx"  # 升版本 → 构建 → commit → tag（--push 推送，--dry-run 预览）
+npm run release "feat: xxx"  # 升版本 → 构建 → commit → tag → push（--no-push 只本地提交，--dry-run 预览）
 ```
 
 版本号由 `.dev/bump-and-build.mjs` 按本地时间写入 `vite.config.js`，格式 `YYYY.MM.DD.HHmm`，不要手改，也不要手改 `dist`。
@@ -17,14 +30,15 @@ npm run release "feat: xxx"  # 升版本 → 构建 → commit → tag（--push 
 
 ## 目录与职责
 
-- `src/main.js`：唯一运行入口，按顺序初始化所有 handler。
-- `src/core/ElementTracker.js`：基于 `MutationObserver` 的动态 DOM 元素跟踪器；当前实现为单例，避免各 handler 重复监听。
-- `src/assets/icon.js`：脚本图标 SVG，`@icon` 与站点 favicon 共用；纯 path 绘制，不依赖 `<text>`（部分扩展面板的 SVG 渲染会丢弃文本元素）。
+- `src/main.js`：唯一运行入口；登记各 handler 返回的清理函数，脚本被重复注入时先执行 teardown 再初始化。
+- `src/core/ElementTracker.js`：基于 `MutationObserver` 的动态 DOM 元素跟踪器；单例，避免各 handler 重复监听；实例由入口调 `disposeInstance()` 统一释放，handler 不要自己关。
+- `src/assets/icon.js`：脚本图标 SVG，`@icon` 与站点 favicon 共用；黑圆白字，圆的填充留 25% 透明（部分扩展面板会把图标整体刷白，不透明黑圆会变成白球、字母一起消失）。
 - `src/handlers/video.js`：通用 `<video>` 处理；将视频音量设为 50%、取消静音，并在 Musedam 页面尝试自动播放。
 - `src/handlers/pornhub/index.js`：PornHub handler 的聚合入口；负责域名判断，并组合年龄验证、背景播放、favicon、标题、GIF 链接和搜索切换功能。
 - `src/handlers/pornhub/`：
-  - `backgroundPlayback.js`：阻止页面因切后台而暂停媒体。
-  - `favicon.js`：替换 favicon。
+  - `dom.js`：PornHub 的选择器契约；站点 class 名是混淆产物，改版时只改这里。
+  - `backgroundPlayback.js`：阻止页面因切后台而暂停媒体；改的是页面共享原型，可还原。
+  - `favicon.js`：替换 favicon，清理时写回原图标。
   - `videoEnhancements.js`：移除年龄验证、取消 GIF 静音、显示原始标题。
   - `gifLink.js`：为带 `data-gif` 的元素添加 GIF 链接。
   - `searchSwitch.js`：在 Video/GIF 搜索页之间跳转或添加切换按钮；跳转 GIF 搜索页时把搜索词清理为字母、数字和空格。
@@ -53,6 +67,8 @@ npm run build
 ## 开发约定
 
 - 新增站点功能时优先在 `src/handlers/` 下增加或扩展现有 handler，并在 `src/main.js` 注册初始化函数。
+- handler 的初始化函数负责返回清理函数：自己添加的事件监听、observer、定时器、注入的节点和改过的原型方法都要能撤销，入口会按注册逆序调用；共享的 `ElementTracker` 只在入口释放。
+- 选择器集中成契约：PornHub 的混淆 class 写在 `src/handlers/pornhub/dom.js`，其它站点的也放在对应 handler 顶部的常量里，不要散落在业务逻辑中。
 - 站点专属 handler 应自行判断当前 URL，不要让不匹配的站点执行 DOM 修改。
 - 页面可能动态加载内容；处理动态元素时复用 `ElementTracker` 的 `track(selector, callback)`，并保证回调可重复触发而不会重复插入 UI。
 - 保持现有的 ES module 写法和单引号风格，避免引入框架或新的运行时依赖。

@@ -43,6 +43,7 @@ function createSwitchButton(pageUrl, isVideo) {
     });
 
     document.body.appendChild(button);
+    return button;
 }
 
 export default function addSearchSwitch(url) {
@@ -63,5 +64,6 @@ export default function addSearchSwitch(url) {
     }
 
     const isVideo = pageUrl.pathname.startsWith('/video');
-    createSwitchButton(toSearchUrl(pageUrl, isVideo ? 'gif' : 'video'), isVideo);
+    const button = createSwitchButton(toSearchUrl(pageUrl, isVideo ? 'gif' : 'video'), isVideo);
+    return () => button.remove();
 }

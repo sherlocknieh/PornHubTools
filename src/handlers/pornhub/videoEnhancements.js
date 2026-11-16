@@ -1,6 +1,16 @@
+import {
+    AGE_DISCLAIMER,
+    AGE_ENTER_BUTTON,
+    VOLUME_TOGGLE,
+    TITLE_CONTAINER,
+    TITLE_TEXT,
+    ORIGINAL_TITLE_BUTTON,
+    TRANSLATED_TITLE,
+} from './dom.js';
+
 export function dismissAgeDisclaimer(tracker) {
-    tracker.track('.modalMTubes.ageDisclaimer', modal => {
-        const enterButton = modal.querySelector('.buttonOver18, .js-closeAgeModal');
+    tracker.track(AGE_DISCLAIMER, modal => {
+        const enterButton = modal.querySelector(AGE_ENTER_BUTTON);
         if (enterButton) enterButton.click();
         modal.style.display = 'none';
         modal.remove();
@@ -10,16 +20,16 @@ export function dismissAgeDisclaimer(tracker) {
 }
 
 export function unmuteGif(tracker) {
-    tracker.track('#js-volumeToggle', volumeButton => {
+    tracker.track(VOLUME_TOGGLE, volumeButton => {
         volumeButton.classList.remove('muted');
     });
 }
 
 export function showOriginalTitle(tracker) {
-    tracker.track('.title-container, .headerWrap', container => {
-        const title = container.querySelector('h1 .inlineFree') || container.querySelector('.inlineFree');
-        const button = container.querySelector('.js-originalTranslation');
-        const translatedTitle = button ? button.querySelector('.swapTitle') : null;
+    tracker.track(TITLE_CONTAINER, container => {
+        const title = container.querySelector(TITLE_TEXT);
+        const button = container.querySelector(ORIGINAL_TITLE_BUTTON);
+        const translatedTitle = button ? button.querySelector(TRANSLATED_TITLE) : null;
 
         if (window.VIDEO_SHOW?.videoTitleOriginal && title) {
             const originalTitle = window.VIDEO_SHOW.videoTitleOriginal.trim();

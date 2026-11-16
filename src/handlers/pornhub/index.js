@@ -10,11 +10,19 @@ export default function initPornhubHandler() {
     if (!url.includes('pornhub.com')) return;
 
     const tracker = new ElementTracker();
-    disableBackgroundPause();
-    replaceFavicon();
+    const restoreBackground = disableBackgroundPause();
+    const restoreFavicon = replaceFavicon();
     dismissAgeDisclaimer(tracker);
     unmuteGif(tracker);
     showOriginalTitle(tracker);
-    addGifLink(tracker);
-    addSearchSwitch(url);
+    const removeGifLinks = addGifLink(tracker);
+    const removeSearchSwitch = addSearchSwitch(url);
+
+    // 原型补丁、favicon 和注入的按钮都由本模块还原，跟踪器交给入口统一释放
+    return () => {
+        restoreBackground();
+        restoreFavicon();
+        removeGifLinks();
+        removeSearchSwitch?.();
+    };
 }

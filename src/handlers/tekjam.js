@@ -43,4 +43,5 @@ export default function initTekjamHandler() {
         }
     `;
     (document.head || document.documentElement).appendChild(style);
+    return () => style.remove();
 }

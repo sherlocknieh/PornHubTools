@@ -119,7 +119,9 @@ function isGalleryContainer(el) {
 const GALLERY_SELECTOR = 'div, ul, section, main';
 
 // 容器 -> 布局状态：列宽、每列已占用的高度、每个格子的列与顶端位置
-const states = new WeakMap();
+let states = new WeakMap();
+// 容器 -> 自己那份子项观察器与 load 监听，清理时逐个断开
+const containerCleanups = new WeakMap();
 
 function isNarrow() {
     return window.matchMedia(NARROW_QUERY).matches;
@@ -253,34 +255,78 @@ const containerObserver = new ResizeObserver(entries => {
 
 // 无限滚动会不断追加格子：追加多少就只排多少，已有格子不动
 function observeContainer(el) {
+    // 已接管过就不再重复挂监听，重跑初始化时只补布局
+    if (containerCleanups.has(el)) {
+        layout(el);
+        return;
+    }
     el.setAttribute(GRID_ATTR, '');
     layout(el);
-    new MutationObserver(() => layout(el)).observe(el, { childList: true });
+    const childObserver = new MutationObserver(() => layout(el));
+    childObserver.observe(el, { childList: true });
     containerObserver.observe(el);
     // 图片懒加载，解码完成才知道真实比例；capture 才能收到不冒泡的 load
-    el.addEventListener('load', event => {
+    const onLoad = event => {
         const image = event.target;
         if (!(image instanceof HTMLImageElement)) return;
         const item = image.closest(`[${GRID_ATTR}] > *`);
         if (item) refineRatio(el, item);
-    }, true);
+    };
+    el.addEventListener('load', onLoad, true);
+    containerCleanups.set(el, { childObserver, onLoad });
 }
 
 let resizeTimer = null;
+let resizeHandler = null;
+let styleElement = null;
 
 function relayoutAll() {
     document.querySelectorAll(`[${GRID_ATTR}]`).forEach(el => layout(el));
+}
+
+// 把布局彻底交还站点：断开本 handler 的全部观察与监听，清掉接管标记和写进去的定位变量
+function teardown() {
+    window.removeEventListener('resize', resizeHandler);
+    resizeHandler = null;
+    clearTimeout(resizeTimer);
+    resizeTimer = null;
+    containerObserver.disconnect();
+    resizeObserver.disconnect();
+
+    document.querySelectorAll(`[${GRID_ATTR}]`).forEach(container => {
+        const tracked = containerCleanups.get(container);
+        if (tracked) {
+            tracked.childObserver.disconnect();
+            container.removeEventListener('load', tracked.onLoad, true);
+            containerCleanups.delete(container);
+        }
+        container.removeAttribute(GRID_ATTR);
+        container.style.removeProperty('--pg-height');
+        for (const item of container.children) {
+            for (const name of ['--pg-x', '--pg-y', '--pg-w', '--pg-ratio']) item.style.removeProperty(name);
+            item.removeAttribute(GUESS_ATTR);
+        }
+    });
+
+    styleElement?.remove();
+    styleElement = null;
+    // 丢弃装箱状态，下次初始化按当前 DOM 重新算
+    states = new WeakMap();
 }
 
 export default function initPhotoGridHandler() {
     const style = document.createElement('style');
     style.textContent = STYLE_TEXT;
     (document.head || document.documentElement).appendChild(style);
+    styleElement = style;
 
     new ElementTracker().trackStructure(isGalleryContainer, observeContainer, GALLERY_SELECTOR);
 
-    window.addEventListener('resize', () => {
+    resizeHandler = () => {
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(relayoutAll, 150);
-    });
+    };
+    window.addEventListener('resize', resizeHandler);
+
+    return teardown;
 }

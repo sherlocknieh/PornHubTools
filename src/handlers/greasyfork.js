@@ -15,4 +15,5 @@ export default function initGreasyforkHandler() {
     li.appendChild(link);
     if (nav.firstChild) nav.insertBefore(li, nav.firstChild);
     else nav.appendChild(li);
+    return () => li.remove();
 }

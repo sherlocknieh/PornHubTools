@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PornhubTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.16.1939
+// @version      2026.11.16.1942
 // @description  增强一些XX网站的浏览体验
 // @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22%23000%22%20fill-opacity%3D%220.75%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2232%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%20font-size%3D%2232%22%20fill%3D%22%23fff%22%3EPH%3C%2Ftext%3E%0A%3C%2Fsvg%3E
 // @match        https://greasyfork.org/*
@@ -59,6 +59,21 @@
 			this.structureSelector = null;
 			this._scheduleStructuralScan();
 			return this;
+		}
+		dispose() {
+			this.observer.disconnect();
+			clearTimeout(this.scanTimer);
+			this.scanTimer = null;
+			this.selectorMap.clear();
+			this.structuralHandlers.length = 0;
+			this.candidates.clear();
+			this.structureSelector = null;
+			this.seen = new WeakSet();
+			this.seenStructural = new WeakSet();
+			if (ElementTracker.instance === this) ElementTracker.instance = null;
+		}
+		static disposeInstance() {
+			ElementTracker.instance?.dispose();
 		}
 		_selectorForStructure() {
 			if (!this.structureSelector) this.structureSelector = [...new Set(this.structuralHandlers.map((h) => h.selector))].join(",");
@@ -126,9 +141,17 @@
 			if (window.location.href.includes("musedam.cc")) v.play();
 		});
 	}
+	var restore = null;
 	function disableBackgroundPause() {
-		Object.defineProperty(document, "hidden", { get: () => false });
-		Object.defineProperty(document, "visibilityState", { get: () => "visible" });
+		if (restore) return restore;
+		Object.defineProperty(document, "hidden", {
+			configurable: true,
+			get: () => false
+		});
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			get: () => "visible"
+		});
 		const addEventListener = EventTarget.prototype.addEventListener;
 		EventTarget.prototype.addEventListener = function(type, listener, options) {
 			if (type === "visibilitychange") return;
@@ -139,20 +162,50 @@
 			if (document.hidden) return;
 			return pause.apply(this, arguments);
 		};
+		restore = () => {
+			delete document.hidden;
+			delete document.visibilityState;
+			EventTarget.prototype.addEventListener = addEventListener;
+			HTMLMediaElement.prototype.pause = pause;
+			restore = null;
+		};
+		return restore;
 	}
-	var favicon = "data:image/svg+xml;base64," + btoa(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+	var FAVICON_URL = "data:image/svg+xml;base64," + btoa(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
     <circle cx="32" cy="32" r="32" fill="#000" fill-opacity="0.75"/>
     <text x="32" y="32" text-anchor="middle" dominant-baseline="central" font-size="32" fill="#fff">PH</text>
 </svg>`);
 	function replaceFavicon() {
-		document.querySelectorAll("link[rel*=\"icon\"]").forEach((link) => {
-			link.href = favicon;
+		const links = [...document.querySelectorAll("link[rel*=\"icon\"]")];
+		const originals = links.map((link) => ({
+			href: link.href,
+			type: link.type
+		}));
+		for (const link of links) {
+			link.href = FAVICON_URL;
 			link.type = "image/svg+xml";
-		});
+		}
+		return () => {
+			links.forEach((link, index) => {
+				if (!link.isConnected) return;
+				link.href = originals[index].href;
+				link.type = originals[index].type;
+			});
+		};
 	}
+	var AGE_DISCLAIMER = ".modalMTubes.ageDisclaimer";
+	var AGE_ENTER_BUTTON = ".buttonOver18, .js-closeAgeModal";
+	var VOLUME_TOGGLE = "#js-volumeToggle";
+	var TITLE_CONTAINER = ".title-container, .headerWrap";
+	var TITLE_TEXT = "h1 .inlineFree, .inlineFree";
+	var ORIGINAL_TITLE_BUTTON = ".js-originalTranslation";
+	var TRANSLATED_TITLE = ".swapTitle";
+	var GIF_WRAPPER = "div[data-gif]";
+	var GIF_LINK_BUTTON_CLASS = "custom-gif-link-btn";
+	var GIF_LINK_BUTTON = `.${GIF_LINK_BUTTON_CLASS}`;
 	function dismissAgeDisclaimer(tracker) {
-		tracker.track(".modalMTubes.ageDisclaimer", (modal) => {
-			const enterButton = modal.querySelector(".buttonOver18, .js-closeAgeModal");
+		tracker.track(AGE_DISCLAIMER, (modal) => {
+			const enterButton = modal.querySelector(AGE_ENTER_BUTTON);
 			if (enterButton) enterButton.click();
 			modal.style.display = "none";
 			modal.remove();
@@ -161,15 +214,15 @@
 		});
 	}
 	function unmuteGif(tracker) {
-		tracker.track("#js-volumeToggle", (volumeButton) => {
+		tracker.track(VOLUME_TOGGLE, (volumeButton) => {
 			volumeButton.classList.remove("muted");
 		});
 	}
 	function showOriginalTitle(tracker) {
-		tracker.track(".title-container, .headerWrap", (container) => {
-			const title = container.querySelector("h1 .inlineFree") || container.querySelector(".inlineFree");
-			const button = container.querySelector(".js-originalTranslation");
-			const translatedTitle = button ? button.querySelector(".swapTitle") : null;
+		tracker.track(TITLE_CONTAINER, (container) => {
+			const title = container.querySelector(TITLE_TEXT);
+			const button = container.querySelector(ORIGINAL_TITLE_BUTTON);
+			const translatedTitle = button ? button.querySelector(TRANSLATED_TITLE) : null;
 			if (window.VIDEO_SHOW?.videoTitleOriginal && title) {
 				const originalTitle = window.VIDEO_SHOW.videoTitleOriginal.trim();
 				const currentTitle = title.innerHTML.trim();
@@ -184,13 +237,14 @@
 		});
 	}
 	function addGifLink(tracker) {
-		tracker.track("div[data-gif]", (wrapper) => {
+		const pendingTimers = new Set();
+		tracker.track(GIF_WRAPPER, (wrapper) => {
 			if (wrapper.querySelector(".custom-gif-link-btn")) return;
 			const button = document.createElement("a");
 			button.href = wrapper.getAttribute("data-gif");
 			button.target = "_blank";
 			button.innerText = "GIF";
-			button.className = "custom-gif-link-btn";
+			button.className = GIF_LINK_BUTTON_CLASS;
 			Object.assign(button.style, {
 				position: "absolute",
 				right: "2px",
@@ -204,11 +258,18 @@
 				zIndex: "10",
 				pointerEvents: "auto"
 			});
-			wrapper.parentElement.appendChild(button);
-			setTimeout(() => {
-				wrapper.appendChild(button);
+			wrapper.parentElement?.appendChild(button);
+			const timer = setTimeout(() => {
+				pendingTimers.delete(timer);
+				if (wrapper.isConnected && !wrapper.contains(button)) wrapper.appendChild(button);
 			}, 1500);
+			pendingTimers.add(timer);
 		});
+		return () => {
+			pendingTimers.forEach(clearTimeout);
+			pendingTimers.clear();
+			document.querySelectorAll(GIF_LINK_BUTTON).forEach((button) => button.remove());
+		};
 	}
 	function cleanSearchTerm(term) {
 		return term.replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
@@ -245,6 +306,7 @@
 			boxShadow: "0 2px 5px rgba(0,0,0,0.3)"
 		});
 		document.body.appendChild(button);
+		return button;
 	}
 	function addSearchSwitch(url) {
 		if (!url.includes("search")) return;
@@ -259,19 +321,26 @@
 			return;
 		}
 		const isVideo = pageUrl.pathname.startsWith("/video");
-		createSwitchButton(toSearchUrl(pageUrl, isVideo ? "gif" : "video"), isVideo);
+		const button = createSwitchButton(toSearchUrl(pageUrl, isVideo ? "gif" : "video"), isVideo);
+		return () => button.remove();
 	}
 	function initPornhubHandler() {
 		const url = window.location.href;
 		if (!url.includes("pornhub.com")) return;
 		const tracker = new ElementTracker();
-		disableBackgroundPause();
-		replaceFavicon();
+		const restoreBackground = disableBackgroundPause();
+		const restoreFavicon = replaceFavicon();
 		dismissAgeDisclaimer(tracker);
 		unmuteGif(tracker);
 		showOriginalTitle(tracker);
-		addGifLink(tracker);
-		addSearchSwitch(url);
+		const removeGifLinks = addGifLink(tracker);
+		const removeSearchSwitch = addSearchSwitch(url);
+		return () => {
+			restoreBackground();
+			restoreFavicon();
+			removeGifLinks();
+			removeSearchSwitch?.();
+		};
 	}
 	function initGreasyforkHandler() {
 		const url = window.location.href;
@@ -287,6 +356,7 @@
 		li.appendChild(link);
 		if (nav.firstChild) nav.insertBefore(li, nav.firstChild);
 		else nav.appendChild(li);
+		return () => li.remove();
 	}
 	function initTekjamHandler() {
 		const url = new URL(window.location.href);
@@ -332,6 +402,7 @@
         }
     `;
 		(document.head || document.documentElement).appendChild(style);
+		return () => style.remove();
 	}
 	var GRID_ATTR = "data-photo-grid";
 	var MIN_ITEMS = 6;
@@ -424,6 +495,7 @@
 	}
 	var GALLERY_SELECTOR = "div, ul, section, main";
 	var states = new WeakMap();
+	var containerCleanups = new WeakMap();
 	function isNarrow() {
 		return window.matchMedia(NARROW_QUERY).matches;
 	}
@@ -527,34 +599,102 @@
 		for (const { target } of entries) layout(target);
 	});
 	function observeContainer(el) {
+		if (containerCleanups.has(el)) {
+			layout(el);
+			return;
+		}
 		el.setAttribute(GRID_ATTR, "");
 		layout(el);
-		new MutationObserver(() => layout(el)).observe(el, { childList: true });
+		const childObserver = new MutationObserver(() => layout(el));
+		childObserver.observe(el, { childList: true });
 		containerObserver.observe(el);
-		el.addEventListener("load", (event) => {
+		const onLoad = (event) => {
 			const image = event.target;
 			if (!(image instanceof HTMLImageElement)) return;
 			const item = image.closest(`[${GRID_ATTR}] > *`);
 			if (item) refineRatio(el, item);
-		}, true);
+		};
+		el.addEventListener("load", onLoad, true);
+		containerCleanups.set(el, {
+			childObserver,
+			onLoad
+		});
 	}
 	var resizeTimer = null;
+	var resizeHandler = null;
+	var styleElement = null;
 	function relayoutAll() {
 		document.querySelectorAll(`[${GRID_ATTR}]`).forEach((el) => layout(el));
+	}
+	function teardown() {
+		window.removeEventListener("resize", resizeHandler);
+		resizeHandler = null;
+		clearTimeout(resizeTimer);
+		resizeTimer = null;
+		containerObserver.disconnect();
+		resizeObserver.disconnect();
+		document.querySelectorAll(`[${GRID_ATTR}]`).forEach((container) => {
+			const tracked = containerCleanups.get(container);
+			if (tracked) {
+				tracked.childObserver.disconnect();
+				container.removeEventListener("load", tracked.onLoad, true);
+				containerCleanups.delete(container);
+			}
+			container.removeAttribute(GRID_ATTR);
+			container.style.removeProperty("--pg-height");
+			for (const item of container.children) {
+				for (const name of [
+					"--pg-x",
+					"--pg-y",
+					"--pg-w",
+					"--pg-ratio"
+				]) item.style.removeProperty(name);
+				item.removeAttribute(GUESS_ATTR);
+			}
+		});
+		styleElement?.remove();
+		styleElement = null;
+		states = new WeakMap();
 	}
 	function initPhotoGridHandler() {
 		const style = document.createElement("style");
 		style.textContent = STYLE_TEXT;
 		(document.head || document.documentElement).appendChild(style);
+		styleElement = style;
 		new ElementTracker().trackStructure(isGalleryContainer, observeContainer, GALLERY_SELECTOR);
-		window.addEventListener("resize", () => {
+		resizeHandler = () => {
 			clearTimeout(resizeTimer);
 			resizeTimer = setTimeout(relayoutAll, 150);
-		});
+		};
+		window.addEventListener("resize", resizeHandler);
+		return teardown;
 	}
-	initVideoHandler();
-	initPornhubHandler();
-	initGreasyforkHandler();
-	initTekjamHandler();
-	initPhotoGridHandler();
+	var disposers = [];
+	var runtime = { initialized: false };
+	function run(init) {
+		const cleanup = init();
+		if (typeof cleanup === "function") disposers.push(cleanup);
+	}
+	function dispose() {
+		for (const cleanup of disposers.splice(0).reverse()) try {
+			cleanup();
+		} catch (error) {
+			console.warn("[PornhubTools] 清理失败", error);
+		}
+		ElementTracker.disposeInstance();
+		runtime.initialized = false;
+	}
+	function initialize() {
+		if (runtime.initialized) dispose();
+		runtime.initialized = true;
+		run(initVideoHandler);
+		run(initPornhubHandler);
+		run(initGreasyforkHandler);
+		run(initTekjamHandler);
+		run(initPhotoGridHandler);
+	}
+	var host = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
+	if (typeof host.__USERSCRIPT_TEARDOWN__ === "function") host.__USERSCRIPT_TEARDOWN__();
+	initialize();
+	host.__USERSCRIPT_TEARDOWN__ = dispose;
 })();

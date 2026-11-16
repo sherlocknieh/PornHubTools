@@ -44,6 +44,30 @@ export default class ElementTracker {
         return this;
     }
 
+    /**
+     * 断开观察并清空状态，供入口在重复注入或热更新前调用。
+     * 单例会被多个 handler 共用，因此只在入口统一清理一次，handler 自己不要调。
+     */
+    dispose() {
+        this.observer.disconnect();
+        clearTimeout(this.scanTimer);
+        this.scanTimer = null;
+        this.selectorMap.clear();
+        this.structuralHandlers.length = 0;
+        this.candidates.clear();
+        this.structureSelector = null;
+        this.seen = new WeakSet();
+        this.seenStructural = new WeakSet();
+        if (ElementTracker.instance === this) {
+            ElementTracker.instance = null;
+        }
+    }
+
+    // 单例可能被多个 handler 同时持有，入口在清理末尾调一次即可
+    static disposeInstance() {
+        ElementTracker.instance?.dispose();
+    }
+
     _selectorForStructure() {
         if (!this.structureSelector) {
             this.structureSelector = [...new Set(this.structuralHandlers.map(h => h.selector))].join(',');
