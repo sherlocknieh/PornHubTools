@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PornhubTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.16.1920
+// @version      2026.11.16.1939
 // @description  增强一些XX网站的浏览体验
 // @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22%23000%22%20fill-opacity%3D%220.75%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2232%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%20font-size%3D%2232%22%20fill%3D%22%23fff%22%3EPH%3C%2Ftext%3E%0A%3C%2Fsvg%3E
 // @match        https://greasyfork.org/*
@@ -335,45 +335,45 @@
 	}
 	var GRID_ATTR = "data-photo-grid";
 	var MIN_ITEMS = 6;
+	var NARROW_QUERY = "(max-width: 767px)";
+	var COLUMNS = 2;
+	var GAP = 6;
+	var FALLBACK_RATIO = 2 / 3;
+	var GUESS_ATTR = "data-pg-guess";
 	var STYLE_TEXT = `
-    @media (max-width: 767px) {
+    @media ${NARROW_QUERY} {
         [${GRID_ATTR}] {
-            /* 用 grid 而非 column-count：多列是整列填充，图片陆续加载改变高度时会重新分配、
-               第二列内容来回跳；grid 严格按 DOM 顺序逐行填（左→右），加载过程中顺序稳定 */
-            display: grid !important;
-            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-            grid-auto-flow: row !important;
-            align-items: start !important;
-            gap: 6px !important;
-            position: static !important;
+            display: block !important;
+            /* 绝对定位的参照物；位置写进 --pg-* 变量，站点砌砖脚本再改内联 top/left 也盖不过 !important 的 var */
+            position: relative !important;
             /* 站点把容器内联 translate 到屏幕外，不清掉整块图库会跑到视口右侧 */
             transform: none !important;
             translate: none !important;
             left: auto !important;
             right: auto !important;
             top: auto !important;
-            height: auto !important;
+            /* 绝对定位的子项不贡献高度，总高由脚本算出写进变量，保证滚动条长度与无限滚动的判定正确 */
+            height: var(--pg-height, auto) !important;
             min-height: 0 !important;
             max-height: none !important;
-            margin-left: 0 !important;
-            margin-right: 0 !important;
+            margin: 0 !important;
             padding: 0 !important;
         }
 
         /* 覆盖砌砖脚本写入的 position/left/top/width/opacity */
         [${GRID_ATTR}] > * {
-            position: relative !important;
-            left: auto !important;
-            top: auto !important;
+            position: absolute !important;
+            left: var(--pg-x, 0px) !important;
+            top: var(--pg-y, 0px) !important;
+            width: var(--pg-w, 100%) !important;
             float: none !important;
             display: block !important;
-            width: auto !important;
             min-width: 0 !important;
             max-width: none !important;
             height: auto !important;
             min-height: 0 !important;
+            /* 格子高度完全由图片决定，忽略站点给格子设的比例，避免与图片尺寸打架出现叠图 */
             aspect-ratio: auto !important;
-            /* 行间距由容器的 gap 统一控制，避免与 gap 叠加 */
             margin: 0 !important;
             padding: 0 !important;
             border: 0 !important;
@@ -392,11 +392,14 @@
             margin: 0 !important;
         }
 
+        /* 已知比例时提前占住高度（--pg-ratio 继承自格子），没下载完也不改变布局；比例不准时裁切而非拉伸 */
         [${GRID_ATTR}] > * img {
             display: block !important;
             width: 100% !important;
             height: auto !important;
             max-width: none !important;
+            aspect-ratio: var(--pg-ratio, auto) !important;
+            object-fit: cover !important;
         }
     }
 `;
@@ -414,16 +417,140 @@
 	function isGalleryContainer(el) {
 		if (!el.matches("div, ul, section, main")) return false;
 		if (el.hasAttribute(GRID_ATTR)) return false;
+		if (el.querySelector(`[${GRID_ATTR}]`)) return false;
 		const style = el.getAttribute("style") || "";
 		if (!(/position\s*:\s*(absolute|fixed)/.test(style) || /translate/.test(style)) && ![...el.children].some(isMasonryItem)) return false;
 		return hasImageLinks(el);
 	}
 	var GALLERY_SELECTOR = "div, ul, section, main";
+	var states = new WeakMap();
+	function isNarrow() {
+		return window.matchMedia(NARROW_QUERY).matches;
+	}
+	function ratioOf(item) {
+		const raw = item.style.getPropertyValue("--ratio") || getComputedStyle(item).getPropertyValue("--ratio");
+		const ratio = parseFloat(raw);
+		if (ratio > 0) return ratio;
+		const image = item.querySelector("img");
+		if (image && image.naturalWidth && image.naturalHeight) return image.naturalWidth / image.naturalHeight;
+		const width = parseFloat(image?.getAttribute("width"));
+		const height = parseFloat(image?.getAttribute("height"));
+		return width > 0 && height > 0 ? width / height : 0;
+	}
+	function containerHeight(state) {
+		const total = Math.max(0, ...state.heights);
+		return total > 0 ? total - GAP : 0;
+	}
+	function syncHeight(el, state) {
+		el.style.setProperty("--pg-height", `${containerHeight(state)}px`);
+	}
+	function place(el, state, item) {
+		const ratio = ratioOf(item);
+		item.style.setProperty("--pg-ratio", String(ratio || FALLBACK_RATIO));
+		if (ratio) item.removeAttribute(GUESS_ATTR);
+		else item.setAttribute(GUESS_ATTR, "");
+		const height = Math.max(state.colWidth / (ratio || FALLBACK_RATIO), item.offsetHeight);
+		const col = state.heights[0] <= state.heights[1] ? 0 : 1;
+		const top = state.heights[col];
+		item.style.setProperty("--pg-x", `${col * (state.colWidth + GAP)}px`);
+		item.style.setProperty("--pg-y", `${top}px`);
+		state.placed.set(item, {
+			col,
+			top,
+			height
+		});
+		state.heights[col] = top + height + GAP;
+		resizeObserver.observe(item);
+	}
+	function needsRepack(state, items) {
+		const known = [...state.placed.keys()];
+		const kept = items.filter((item) => state.placed.has(item));
+		return kept.length !== known.length || kept.some((item, i) => item !== known[i]);
+	}
+	function layout(el) {
+		if (!isNarrow()) return;
+		const width = el.clientWidth;
+		if (width <= 0) return;
+		const colWidth = (width - 6) / COLUMNS;
+		let state = states.get(el);
+		if (!state) {
+			state = {
+				colWidth: 0,
+				heights: new Array(COLUMNS).fill(0),
+				placed: new Map()
+			};
+			states.set(el, state);
+		}
+		const items = [...el.children];
+		if (needsRepack(state, items) || Math.abs(state.colWidth - colWidth) > .5) {
+			for (const item of state.placed.keys()) if (!item.isConnected) resizeObserver.unobserve(item);
+			state.placed.clear();
+			state.heights.fill(0);
+			state.colWidth = colWidth;
+		}
+		for (const item of items) item.style.setProperty("--pg-w", `${colWidth}px`);
+		for (const item of items) if (!state.placed.has(item)) place(el, state, item);
+		syncHeight(el, state);
+	}
+	function applyMeasuredHeight(el, state, item) {
+		const placed = state.placed.get(item);
+		if (!placed) return;
+		const height = item.offsetHeight;
+		const delta = height - placed.height;
+		if (Math.abs(delta) < 1) return;
+		placed.height = height;
+		for (const [other, position] of state.placed) {
+			if (position.col !== placed.col || position.top <= placed.top) continue;
+			position.top += delta;
+			other.style.setProperty("--pg-y", `${position.top}px`);
+		}
+		state.heights[placed.col] += delta;
+		syncHeight(el, state);
+	}
+	var resizeObserver = new ResizeObserver((entries) => {
+		for (const { target } of entries) {
+			const container = target.closest(`[${GRID_ATTR}]`);
+			const state = container && states.get(container);
+			if (state) applyMeasuredHeight(container, state, target);
+		}
+	});
+	function refineRatio(el, item) {
+		if (!item.hasAttribute(GUESS_ATTR)) return;
+		const image = item.querySelector("img");
+		if (!image || !image.naturalWidth || !image.naturalHeight) return;
+		item.removeAttribute(GUESS_ATTR);
+		item.style.setProperty("--pg-ratio", String(image.naturalWidth / image.naturalHeight));
+		const state = states.get(el);
+		if (state) applyMeasuredHeight(el, state, item);
+	}
+	var containerObserver = new ResizeObserver((entries) => {
+		for (const { target } of entries) layout(target);
+	});
+	function observeContainer(el) {
+		el.setAttribute(GRID_ATTR, "");
+		layout(el);
+		new MutationObserver(() => layout(el)).observe(el, { childList: true });
+		containerObserver.observe(el);
+		el.addEventListener("load", (event) => {
+			const image = event.target;
+			if (!(image instanceof HTMLImageElement)) return;
+			const item = image.closest(`[${GRID_ATTR}] > *`);
+			if (item) refineRatio(el, item);
+		}, true);
+	}
+	var resizeTimer = null;
+	function relayoutAll() {
+		document.querySelectorAll(`[${GRID_ATTR}]`).forEach((el) => layout(el));
+	}
 	function initPhotoGridHandler() {
 		const style = document.createElement("style");
 		style.textContent = STYLE_TEXT;
 		(document.head || document.documentElement).appendChild(style);
-		new ElementTracker().trackStructure(isGalleryContainer, (el) => el.setAttribute(GRID_ATTR, ""), GALLERY_SELECTOR);
+		new ElementTracker().trackStructure(isGalleryContainer, observeContainer, GALLERY_SELECTOR);
+		window.addEventListener("resize", () => {
+			clearTimeout(resizeTimer);
+			resizeTimer = setTimeout(relayoutAll, 150);
+		});
 	}
 	initVideoHandler();
 	initPornhubHandler();

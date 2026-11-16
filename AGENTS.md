@@ -31,7 +31,7 @@ npm run release "feat: xxx"  # 升版本 → 构建 → commit → tag（--push 
 - `src/handlers/greasyfork.js`：在 GreasyFork 与 SleazyFork 页面之间添加互链。
 - `src/handlers/tekjam.js`：在 Tekjam 相册页恢复移动端视图切换控件，并让图片列表使用响应式多列瀑布流（默认 4 列，中等宽度 3 列，窄屏 2 列）；选择 Large photos 时尊重页面的 `data-aview="large"` 状态并恢复单列。
 - `src/core/sites.js`：`@match` 列表的唯一真源；构建时供 `vite.config.js` 生成元数据，运行期用 `isSupportedUrl()` 判断当前页面是否受支持，新增站点只改这一处。
-- `src/handlers/photoGrid.js`：通用图库窄屏多列（≤767px 变两列）；不登记站点或容器 id，只要页面在 `@match` 内就在整页按结构特征识别图库（容器或子项被砌砖脚本写了内联定位，且子项成片是图片链接），命中后由共享样式统一覆盖。窄屏用 grid 逐行填两列（行优先，DOM 顺序即视觉顺序），不用 column-count，避免图片陆续加载时内容在列间来回跳。
+- `src/handlers/photoGrid.js`：通用图库窄屏多列（≤767px 变两列）；不登记站点或容器 id，只要页面在 `@match` 内就在整页按结构特征识别图库（容器或子项被砌砖脚本写了内联定位，且子项成片是图片链接），命中后由共享样式统一覆盖。窄屏布局由脚本接管：每张图只在插入时算一次位置（`--pg-x/--pg-y`），新格子放进当前较矮的一列、已有格子永不复排；高度按站点的 `--ratio`（或图片固有比例，兜底 2:3）提前占位，图片下载完成也不改变布局；不用 `column-count`，因为它会随内容变化重新平衡列高；桌面交回站点自己的砌砖脚本。
 - `vite.config.js`：userscript 元数据、匹配域名和构建产物配置；`match` 直接引用 `src/core/sites.js`。
 - `dist/pornhub-tools.user.js`：构建生成的 userscript 产物；修改源码后通过构建命令更新，不要手工编辑。
 - `.dev/`：一切开发构建相关代码。
