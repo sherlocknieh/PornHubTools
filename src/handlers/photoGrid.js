@@ -9,7 +9,13 @@ const MIN_ITEMS = 6;
 const STYLE_TEXT = `
     @media (max-width: 767px) {
         [${GRID_ATTR}] {
-            display: block !important;
+            /* 用 grid 而非 column-count：多列是整列填充，图片陆续加载改变高度时会重新分配、
+               第二列内容来回跳；grid 严格按 DOM 顺序逐行填（左→右），加载过程中顺序稳定 */
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            grid-auto-flow: row !important;
+            align-items: start !important;
+            gap: 6px !important;
             position: static !important;
             /* 站点把容器内联 translate 到屏幕外，不清掉整块图库会跑到视口右侧 */
             transform: none !important;
@@ -23,8 +29,6 @@ const STYLE_TEXT = `
             margin-left: 0 !important;
             margin-right: 0 !important;
             padding: 0 !important;
-            column-count: 2 !important;
-            column-gap: 6px !important;
         }
 
         /* 覆盖砌砖脚本写入的 position/left/top/width/opacity */
@@ -40,14 +44,13 @@ const STYLE_TEXT = `
             height: auto !important;
             min-height: 0 !important;
             aspect-ratio: auto !important;
-            margin: 0 0 6px !important;
+            /* 行间距由容器的 gap 统一控制，避免与 gap 叠加 */
+            margin: 0 !important;
             padding: 0 !important;
             border: 0 !important;
             transform: none !important;
             opacity: 1 !important;
             visibility: visible !important;
-            break-inside: avoid;
-            box-sizing: border-box;
         }
 
         [${GRID_ATTR}] > * a,
