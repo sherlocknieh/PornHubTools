@@ -14,6 +14,8 @@
 
 - Greasyfork 和 Sleazyfork 页面互链
 
+- 思畅 AI 聊天页：捕获「朗读」生成的音频，右下角面板可试听、下载 WAV
+
 安装地址: https://github.com/sherlocknieh/PornHubTool/raw/main/dist/pornhub-tools.user.js
 
 ## 开发

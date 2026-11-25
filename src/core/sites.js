@@ -14,6 +14,7 @@ export const MATCH_PATTERNS = [
     'https://*.hotnakedwomen.com/*',
     'https://*.hdpornpictures.com/*',
     'https://*.pornpics.com/*',
+    'https://sichang.xyz/*',
 ];
 
 // @match 语法：* 匹配任意字符；`*.` 前缀表示域名及其子域；其余字符按字面量处理。

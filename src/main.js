@@ -4,6 +4,7 @@ import initPornhubHandler from './handlers/pornhub/index.js';
 import initGreasyforkHandler from './handlers/greasyfork.js';
 import initTekjamHandler from './handlers/tekjam.js';
 import initPhotoGridHandler from './handlers/photoGrid.js';
+import initSichangHandler from './handlers/sichang.js';
 
 // handler 各自返回清理函数，这里统一登记；热更新或重复注入时按逆序执行
 const disposers = [];
@@ -35,6 +36,7 @@ function initialize() {
     run(initGreasyforkHandler);
     run(initTekjamHandler);
     run(initPhotoGridHandler);
+    run(initSichangHandler);
 }
 
 // 脚本管理器重新执行同一份脚本时，先拆掉上一轮的观察器、监听器和注入节点，

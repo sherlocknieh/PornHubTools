@@ -4,7 +4,7 @@
 
 ## 入口与生命周期
 
-- `src/main.js` 是唯一运行入口，按 `video → pornhub → greasyfork → tekjam → photoGrid` 顺序初始化。
+- `src/main.js` 是唯一运行入口，按 `video → pornhub → greasyfork → tekjam → photoGrid → sichang` 顺序初始化。
 - 每个 handler 的初始化函数返回清理函数，入口把它们登记进 `disposers`，重复注入时按注册逆序执行清理，最后释放 `ElementTracker` 单例。
 - 入口把清理函数挂到 `unsafeWindow.__USERSCRIPT_TEARDOWN__`；脚本管理器重新执行同一份脚本时先调用它，避免观察器、监听器、注入节点和原型包装叠加成多份。
 - `runtime.initialized` 只表示当前是否已初始化，重复调用 `initialize()` 会先 `dispose()` 再重建。
@@ -25,6 +25,7 @@
 - `src/handlers/greasyfork.js`：在 GreasyFork 与 SleazyFork 页面之间添加互链。
 - `src/handlers/tekjam.js`：在 Tekjam 相册页恢复移动端视图切换控件，并让图片列表使用响应式多列瀑布流（默认 4 列，中等宽度 3 列，窄屏 2 列）；选择 Large photos 时尊重页面的 `data-aview="large"` 状态并恢复单列。
 - `src/handlers/photoGrid.js`：通用图库窄屏多列（≤767px 两列）；不登记站点或容器 id，只在整页按结构特征识别图库（容器或子项被砌砖脚本写了内联定位，且子项成片是图片链接），命中后由共享样式统一覆盖。窄屏布局由脚本接管：每张图仅在插入时算一次位置（`--pg-x/--pg-y`），新格子放进当前较矮的一列，已有格子不复排；高度按站点的 `--ratio` 或图片固有比例提前占位（兜底 2:3）；桌面交回站点自己的砌砖脚本。
+- `src/handlers/sichang.js`：在思畅 AI 聊天页拦截 `/api/tts` 的响应流，把流式 PCM16 封装成 WAV，右下角面板提供试听与下载；详见 `features/sichang.md`，机制见 `logic/pcm-stream-capture.md`。
 - `vite.config.js`：userscript 元数据、匹配域名与构建产物配置；`match` 引用 `src/core/sites.js`。
 - `dist/pornhub-tools.user.js`：构建产物，由构建脚本生成。
 - `.dev/`：开发构建相关代码。
@@ -46,6 +47,7 @@
 | Anacams 帖子页 | `anacams.com/post/*` |
 | Tekjam 相册页 | `www.tekjam.com/album/*` |
 | Elite Babes / Hot Naked Women / HD Porn Pictures / PornPics 及子域 | 对应域名 |
+| 思畅 AI | `sichang.xyz` |
 
 新增站点只改 `MATCH_PATTERNS`，元数据与运行时判断会同时生效。
 
