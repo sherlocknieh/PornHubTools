@@ -13,6 +13,34 @@ const MAX_ATTEMPTS = 2;
 const MAX_PCM_BYTES = 64 * 1024 * 1024;
 // 脚本自己发的分段请求带这个头，用来和官方请求区分，避免无限接管
 const SEGMENT_HEADER = 'X-Sichang-Segment';
+// 首段先攒这么多秒再起播：开头几个网络块常比实时慢，直接播会在第一句里留小段补白
+const MIN_START_SECONDS = 0.5;
+// 站点自带的音色列表（与官方朗读使用同一接口参数），id 直接作为 voice 传给接口
+const VOICE_GROUPS = [
+    {
+        label: '中文',
+        voices: [
+            { id: 'mimo_default', label: '默认' },
+            { id: '冰糖', label: '冰糖（女声）' },
+            { id: '茉莉', label: '茉莉（女声）' },
+            { id: '苏打', label: '苏打（男声）' },
+            { id: '白桦', label: '白桦（男声）' },
+        ],
+    },
+    {
+        label: 'English',
+        voices: [
+            { id: 'Mia', label: 'Mia（女声）' },
+            { id: 'Chloe', label: 'Chloe（女声）' },
+            { id: 'Milo', label: 'Milo（男声）' },
+            { id: 'Dean', label: 'Dean（男声）' },
+        ],
+    },
+];
+const DEFAULT_VOICE = 'mimo_default';
+const VOICE_STORE_KEY = 'sichang-tts-voice';
+const RATE_STORE_KEY = 'sichang-tts-rate';
+const FOLD_STORE_KEY = 'sichang-tts-folded';
 
 const PANEL_CSS = `
 :host { all: initial; }
@@ -57,6 +85,46 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font-size: 12px;
 }
 .head button:hover { background: #2c2c33; color: #fff; }
+.compose { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-bottom: 1px solid #232329; }
+.compose textarea {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 44px;
+    max-height: 132px;
+    padding: 7px 8px;
+    border: 1px solid #2c2c33;
+    border-radius: 7px;
+    background: #101014;
+    color: #e8e8ea;
+    font: 12px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    resize: vertical;
+}
+.compose textarea:focus, .compose select:focus, .compose input:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
+.compose textarea::placeholder { color: #6f6f79; }
+.compose .row { display: flex; align-items: center; gap: 6px; }
+.compose select, .compose input {
+    height: 26px;
+    padding: 0 6px;
+    border: 1px solid #2c2c33;
+    border-radius: 6px;
+    background: #1d1d22;
+    color: #d5d5dd;
+    font: 12px system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+.compose select { flex: 1; min-width: 0; }
+.compose input.rate { width: 48px; text-align: center; }
+.compose .go {
+    height: 26px;
+    padding: 0 14px;
+    border-radius: 6px;
+    background: #2d4a33;
+    color: #a9e6b8;
+    font-size: 12px;
+}
+.compose .go:hover { background: #3a5f43; color: #fff; }
+.panel.folded { width: auto; }
+.panel.folded .compose, .panel.folded .body { display: none; }
+.panel.folded .head { border-bottom: 0; }
 .body { max-height: 340px; overflow: auto; }
 .empty { padding: 16px 14px; color: #8a8a94; font-size: 12px; text-align: center; }
 .item { display: flex; gap: 9px; padding: 9px 10px 9px 12px; border-bottom: 1px solid #232329; }
@@ -124,6 +192,11 @@ function createPanel() {
     }
     const panel = document.createElement('div');
     panel.className = 'panel';
+    const groups = VOICE_GROUPS.map(group => `
+        <optgroup label="${group.label}">
+            ${group.voices.map(voice => `<option value="${voice.id}">${voice.label}</option>`).join('')}
+        </optgroup>
+    `).join('');
     panel.innerHTML = `
         <div class="head">
             <span class="title">语音捕获</span>
@@ -132,14 +205,35 @@ function createPanel() {
             <button class="clear" hidden>清空</button>
             <button class="fold" aria-label="收起">−</button>
         </div>
+        <div class="compose">
+            <textarea class="input" rows="2" placeholder="输入或粘贴文本，Ctrl+Enter 合成"></textarea>
+            <div class="row">
+                <select class="voice" aria-label="音色">${groups}</select>
+                <input class="rate" type="number" min="0.5" max="2" step="0.1" value="1" aria-label="语速" title="语速">
+                <button class="go">合成</button>
+            </div>
+        </div>
         <div class="body">
-            <div class="empty">点击消息下的「朗读」，音频会自动出现在这里</div>
+            <div class="empty">点消息下的「朗读」，或在上方输入文本合成</div>
             <div class="list"></div>
         </div>
     `;
     root.appendChild(panel);
     document.documentElement.appendChild(host);
-    return { host, list: panel.querySelector('.list'), empty: panel.querySelector('.empty'), count: panel.querySelector('.count'), clear: panel.querySelector('.clear') };
+    return {
+        host,
+        panel,
+        list: panel.querySelector('.list'),
+        empty: panel.querySelector('.empty'),
+        count: panel.querySelector('.count'),
+        clear: panel.querySelector('.clear'),
+        fold: panel.querySelector('.fold'),
+        compose: panel.querySelector('.compose'),
+        input: panel.querySelector('.input'),
+        voice: panel.querySelector('.voice'),
+        rate: panel.querySelector('.rate'),
+        go: panel.querySelector('.go'),
+    };
 }
 
 function pcmToWav(pcm, sampleRate) {
@@ -224,9 +318,36 @@ export default function initSichangHandler() {
     if (window.location.hostname !== 'sichang.xyz') return;
 
     const ui = createPanel();
+
+    // 站点把输入框钉在底部，300 宽的面板会正好盖住发送按钮；
+    // 检测到贴底输入框时把面板抬到它上方，没有输入框的页面维持 16px
+    function placePanel() {
+        const box = [...document.querySelectorAll('textarea, [contenteditable="true"]')].find(element => {
+            const rect = element.getBoundingClientRect();
+            return rect.width > 160 && rect.bottom > window.innerHeight - 160;
+        });
+        const bottom = box ? Math.max(16, window.innerHeight - box.getBoundingClientRect().top + 12) : 16;
+        ui.host.style.bottom = `${Math.round(bottom)}px`;
+    }
+    placePanel();
+    window.addEventListener('resize', placePanel);
+
+    function applyFold(folded) {
+        ui.panel.classList.toggle('folded', folded);
+        ui.fold.textContent = folded ? '+' : '−';
+        ui.fold.setAttribute('aria-label', folded ? '展开' : '收起');
+        try {
+            localStorage.setItem(FOLD_STORE_KEY, folded ? '1' : '0');
+        } catch {}
+    }
+    ui.fold.addEventListener('click', () => applyFold(!ui.panel.classList.contains('folded')));
+    try {
+        if (localStorage.getItem(FOLD_STORE_KEY) === '1') applyFold(true);
+    } catch {}
     const records = [];
     let activeAudio = null;
     let activeSession = null;
+    let activeTimeline = null;
     let audioContext = null;
 
     function ensureAudioContext() {
@@ -247,6 +368,42 @@ export default function initSichangHandler() {
         if (activeAudio && !activeAudio.paused) activeAudio.pause();
     }
 
+    // 合成结束时整条音频已经排进 Web Audio 的时间线，可能还要播很久；
+    // 这段时间必须留着「停止」，否则用户既停不下来，点「播放」还会和它叠音
+    function stopTimeline(record) {
+        if (!record || record.state !== 'playing') return;
+        clearTimeout(record.timelineTimer);
+        clearInterval(record.timelineTicker);
+        record.timelineTimer = null;
+        record.timelineTicker = null;
+        record.session?.abort();
+        if (activeSession && activeSession.record === record) activeSession = null;
+        record.session = null;
+        if (activeTimeline === record) activeTimeline = null;
+        record.state = 'ready';
+        record.playButton.textContent = '播放';
+        record.playButton.classList.remove('playing');
+        record.bar.classList.remove('show');
+        record.fill.style.width = '0%';
+        record.duration.textContent = formatDuration(record.seconds);
+    }
+
+    function startTimelineTicker(record, session) {
+        const total = session.playhead - session.timelineStart;
+        const tick = () => {
+            if (record.state !== 'playing') return;
+            const elapsed = session.context.currentTime - session.timelineStart;
+            const ratio = Math.min(1, Math.max(0, elapsed / total));
+            record.fill.style.width = `${ratio * 100}%`;
+        };
+        tick();
+        record.timelineTicker = setInterval(tick, 250);
+        record.timelineTimer = setTimeout(
+            () => stopTimeline(record),
+            Math.max(0, session.playhead - session.context.currentTime) * 1000 + 80,
+        );
+    }
+
     // 单条播放结束或被打断时，把按钮文字和状态一起改回来；捕获中的行不参与
     function syncPlayState() {
         for (const record of records) {
@@ -261,8 +418,12 @@ export default function initSichangHandler() {
         const index = records.indexOf(record);
         if (index >= 0) records.splice(index, 1);
         if (record.audio === activeAudio) activeAudio = null;
+        if (activeTimeline === record) activeTimeline = null;
+        clearTimeout(record.timelineTimer);
+        clearInterval(record.timelineTicker);
         record.audio?.pause();
         record.session?.abort();
+        if (activeSession?.record === record) activeSession = null;
         if (record.url) URL.revokeObjectURL(record.url);
         record.row.remove();
         updateCount();
@@ -332,6 +493,10 @@ export default function initSichangHandler() {
                 record.session?.stop();
                 return;
             }
+            if (record.state === 'playing') {
+                stopTimeline(record);
+                return;
+            }
             if (record.audio && !record.audio.paused) {
                 record.audio.pause();
                 return;
@@ -339,6 +504,7 @@ export default function initSichangHandler() {
             if (!record.url) return;
             // 同一时间只放一条，避免边听边叠音
             stopActive();
+            stopTimeline(activeTimeline);
             if (!record.audio) {
                 const audio = new Audio(record.url);
                 record.audio = audio;
@@ -406,6 +572,7 @@ export default function initSichangHandler() {
         // 捕获中被删掉或被挤出列表的记录不再落盘
         if (!records.includes(record) || record.state !== 'capturing') return;
         const evenLength = record.bytes - (record.bytes % 2);
+        const session = record.session;
         record.session = null;
         if (!evenLength) {
             markFailed(record);
@@ -423,7 +590,55 @@ export default function initSichangHandler() {
         record.playButton.textContent = '播放';
         record.playButton.disabled = false;
         record.downloadButton.disabled = false;
+
+        // 数据下完了，但整条音频还在时间线上播：这段可能长达数分钟，
+        // 按钮保持「停止」，播完再由定时器切回「播放」
+        if (session && !session.stopped && session.sources.length && session.playhead > session.context.currentTime + 0.05) {
+            if (activeTimeline && activeTimeline !== record) stopTimeline(activeTimeline);
+            record.state = 'playing';
+            record.session = session;
+            activeTimeline = record;
+            record.playButton.textContent = '停止';
+            record.bar.classList.add('show');
+            record.bar.classList.add('determinate');
+            startTimelineTicker(record, session);
+        }
     }
+
+    // 面板里的手动入口：走同一条分段合成、边下边播、落盘流程，不依赖站点的朗读按钮
+    try {
+        const savedVoice = localStorage.getItem(VOICE_STORE_KEY);
+        if (savedVoice && [...ui.voice.options].some(option => option.value === savedVoice)) ui.voice.value = savedVoice;
+        const savedRate = Number(localStorage.getItem(RATE_STORE_KEY));
+        if (savedRate >= 0.5 && savedRate <= 2) ui.rate.value = String(savedRate);
+    } catch {}
+
+    function submitCompose() {
+        const text = ui.input.value.trim();
+        if (!text) {
+            ui.input.focus();
+            return;
+        }
+        const voice = ui.voice.value || DEFAULT_VOICE;
+        const rate = Math.min(2, Math.max(0.5, Number(ui.rate.value) || 1));
+        try {
+            localStorage.setItem(VOICE_STORE_KEY, voice);
+            localStorage.setItem(RATE_STORE_KEY, String(rate));
+        } catch {}
+        ui.input.value = '';
+        startSession({ text, voice, rate, format: 'pcm16' });
+    }
+
+    ui.go.addEventListener('click', submitCompose);
+    // 面板里的按键不要冒泡到站点，避免触发站点自己的输入/发送快捷键
+    ui.compose.addEventListener('keydown', event => {
+        event.stopPropagation();
+        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault();
+            submitCompose();
+        }
+    });
+    ui.compose.addEventListener('keyup', event => event.stopPropagation());
 
     ui.clear.addEventListener('click', () => {
         for (const record of [...records]) removeRecord(record);
@@ -431,13 +646,14 @@ export default function initSichangHandler() {
     });
 
     // 把一段 PCM 排进 Web Audio 的播放时间线，段与段之间按上一段的结束时间接续
-    function schedulePcm(session, bytes) {
+    function startSource(session, bytes) {
         const count = bytes.byteLength / 2;
         if (!count) return;
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const samples = new Float32Array(count);
         for (let i = 0; i < count; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
         const context = ensureAudioContext();
+        session.context = context;
         const buffer = context.createBuffer(1, count, session.sampleRate);
         buffer.copyToChannel(samples, 0);
         const source = context.createBufferSource();
@@ -445,6 +661,7 @@ export default function initSichangHandler() {
         source.connect(context.destination);
         const startAt = Math.max(session.playhead, context.currentTime + 0.06);
         source.start(startAt);
+        if (session.timelineStart === null) session.timelineStart = startAt;
         session.playhead = startAt + buffer.duration;
         // 播完就从时间线里摘掉，避免长文本攒下成千上万个节点
         source.onended = () => {
@@ -452,6 +669,33 @@ export default function initSichangHandler() {
             if (index >= 0) session.sources.splice(index, 1);
         };
         session.sources.push(source);
+    }
+
+    // 首段先攒够 MIN_START_SECONDS 再排时间线：开头几个块到得慢，
+    // 直接起播会在第一句里留出可听出来的补白
+    function flushPending(session) {
+        if (session.stopped || session.started || !session.pendingBytes) return;
+        const merged = new Uint8Array(session.pendingBytes);
+        let offset = 0;
+        for (const part of session.pending) {
+            merged.set(part, offset);
+            offset += part.length;
+        }
+        session.pending = [];
+        session.pendingBytes = 0;
+        session.started = true;
+        startSource(session, merged);
+    }
+
+    function schedulePcm(session, bytes) {
+        if (!session.started) {
+            session.pending.push(bytes);
+            session.pendingBytes += bytes.length;
+            if (session.pendingBytes < session.sampleRate * 2 * MIN_START_SECONDS) return;
+            flushPending(session);
+            return;
+        }
+        startSource(session, bytes);
     }
 
     function stopSources(session) {
@@ -464,6 +708,8 @@ export default function initSichangHandler() {
     }
 
     function startSession({ text, voice, rate, format }) {
+        // 上一条如果只剩时间线在播，先把它停干净；否则新朗读会和旧音频叠在一起
+        stopTimeline(activeTimeline);
         activeSession?.stop();
         // 官方朗读和面板试听互斥，避免两路声音叠在一起
         stopActive();
@@ -477,6 +723,11 @@ export default function initSichangHandler() {
             record,
             stopped: false,
             playhead: 0,
+            started: false,
+            pending: [],
+            pendingBytes: 0,
+            timelineStart: null,
+            context: null,
             sources: [],
             sampleRate: DEFAULT_SAMPLE_RATE,
             controller: new AbortController(),
@@ -538,6 +789,8 @@ export default function initSichangHandler() {
                 if (evenLength) schedulePcm(session, data.subarray(0, evenLength));
                 leftover = data.subarray(evenLength);
             }
+            // 整段比预缓冲还短时也要起播，不能一直攒着
+            flushPending(session);
         };
 
         const speak = async piece => {
@@ -587,6 +840,11 @@ export default function initSichangHandler() {
             } catch {}
             stopSources(session);
             if (activeSession === session) activeSession = null;
+            // 合成已结束、只剩时间线在播时，按停止要把按钮和进度一起复位
+            if (record.state === 'playing') {
+                stopTimeline(record);
+                return;
+            }
             finalizeRecord(record);
         };
         session.abort = () => {
@@ -645,10 +903,12 @@ export default function initSichangHandler() {
     };
 
     return () => {
+        window.removeEventListener('resize', placePanel);
         window.fetch = originalFetch;
         for (const record of [...records]) removeRecord(record);
         activeAudio = null;
         activeSession = null;
+        activeTimeline = null;
         if (audioContext && audioContext.state !== 'closed') {
             try {
                 audioContext.close();
