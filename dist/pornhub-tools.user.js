@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PornhubTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.25.1639
+// @version      2026.11.25.1648
 // @description  增强一些XX网站的浏览体验
 // @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22%23000%22%20fill-opacity%3D%220.75%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2232%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%20font-size%3D%2232%22%20fill%3D%22%23fff%22%3EPH%3C%2Ftext%3E%0A%3C%2Fsvg%3E
 // @match        https://greasyfork.org/*
@@ -728,6 +728,16 @@
 	var VOICE_STORE_KEY = "sichang-tts-voice";
 	var RATE_STORE_KEY = "sichang-tts-rate";
 	var FOLD_STORE_KEY = "sichang-tts-folded";
+	var PLAY_RATE_STORE_KEY = "sichang-tts-play-rate";
+	var PLAY_RATES = [
+		.5,
+		.75,
+		1,
+		1.25,
+		1.5,
+		1.75,
+		2
+	];
 	var PANEL_CSS = `
 :host { all: initial; }
 .panel {
@@ -771,6 +781,16 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font-size: 12px;
 }
 .head button:hover { background: #2c2c33; color: #fff; }
+.head select {
+    height: 22px;
+    padding: 0 3px;
+    border: 0;
+    border-radius: 6px;
+    background: #2a2a32;
+    color: #a9a9b3;
+    font: 11px system-ui, -apple-system, 'Segoe UI', sans-serif;
+    cursor: pointer;
+}
 .compose { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-bottom: 1px solid #232329; }
 .compose textarea {
     box-sizing: border-box;
@@ -856,6 +876,50 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .item[data-live] .bar .fill { width: 35%; background: #d8b46a; animation: tts-slide 1.1s ease-in-out infinite; }
 .item[data-live] .bar.determinate .fill { animation: none; }
 @keyframes tts-slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+.segs { margin-top: 5px; }
+.segs summary {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: #8a8a94;
+    font-size: 11px;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
+.segs summary::-webkit-details-marker { display: none; }
+.segs summary::before { content: '▸'; font-size: 9px; transition: transform .15s; }
+.segs[open] summary::before { transform: rotate(90deg); }
+.segs .segCount { color: #b9b9c2; }
+.seg {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 0;
+    border-top: 1px solid #1f1f25;
+    font-size: 11px;
+}
+.seg:first-child { border-top: 0; }
+.seg .idx { width: 16px; flex: none; text-align: right; color: #6f6f79; }
+.seg .segText {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: #a9a9b3;
+}
+.seg .segDur { flex: none; color: #80808a; }
+.seg button {
+    flex: none;
+    height: 19px;
+    padding: 0 6px;
+    border-radius: 5px;
+    background: #2a2a32;
+    color: #c9c9d1;
+    font-size: 10px;
+}
+.seg button:hover { background: #35353f; color: #fff; }
 @media (max-width: 480px) {
     .panel { width: calc(100vw - 24px); }
 }
@@ -876,22 +940,24 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 		}
 		const panel = document.createElement("div");
 		panel.className = "panel";
+		const groups = VOICE_GROUPS.map((group) => `
+        <optgroup label="${group.label}">
+            ${group.voices.map((voice) => `<option value="${voice.id}">${voice.label}</option>`).join("")}
+        </optgroup>
+    `).join("");
 		panel.innerHTML = `
         <div class="head">
             <span class="title">语音捕获</span>
             <span class="count">0</span>
             <span class="spacer"></span>
+            <select class="speed" aria-label="播放倍速" title="播放倍速（正在进行的实时朗读不受影响）">${PLAY_RATES.map((rate) => `<option value="${rate}">${rate}×</option>`).join("")}</select>
             <button class="clear" hidden>清空</button>
             <button class="fold" aria-label="收起">−</button>
         </div>
         <div class="compose">
             <textarea class="input" rows="2" placeholder="输入或粘贴文本，Ctrl+Enter 合成"></textarea>
             <div class="row">
-                <select class="voice" aria-label="音色">${VOICE_GROUPS.map((group) => `
-        <optgroup label="${group.label}">
-            ${group.voices.map((voice) => `<option value="${voice.id}">${voice.label}</option>`).join("")}
-        </optgroup>
-    `).join("")}</select>
+                <select class="voice" aria-label="音色">${groups}</select>
                 <input class="rate" type="number" min="0.5" max="2" step="0.1" value="1" aria-label="语速" title="语速">
                 <button class="go">合成</button>
             </div>
@@ -911,6 +977,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 			count: panel.querySelector(".count"),
 			clear: panel.querySelector(".clear"),
 			fold: panel.querySelector(".fold"),
+			speed: panel.querySelector(".speed"),
 			compose: panel.querySelector(".compose"),
 			input: panel.querySelector(".input"),
 			voice: panel.querySelector(".voice"),
@@ -1018,6 +1085,21 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 		let activeSession = null;
 		let activeTimeline = null;
 		let audioContext = null;
+		let playRate = 1;
+		try {
+			const savedPlayRate = Number(localStorage.getItem(PLAY_RATE_STORE_KEY));
+			if (PLAY_RATES.includes(savedPlayRate)) playRate = savedPlayRate;
+		} catch {}
+		ui.speed.value = String(playRate);
+		ui.speed.addEventListener("change", () => {
+			const value = Number(ui.speed.value);
+			if (!PLAY_RATES.includes(value)) return;
+			playRate = value;
+			try {
+				localStorage.setItem(PLAY_RATE_STORE_KEY, String(value));
+			} catch {}
+			for (const record of records) if (record.audio) record.audio.playbackRate = value;
+		});
 		function ensureAudioContext() {
 			if (!audioContext || audioContext.state === "closed") audioContext = new (window.AudioContext || window.webkitAudioContext)();
 			if (audioContext.state === "suspended") audioContext.resume().catch(() => {});
@@ -1047,6 +1129,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 			record.bar.classList.remove("show");
 			record.fill.style.width = "0%";
 			record.duration.textContent = formatDuration(record.seconds);
+			setSegmentsEnabled(record, true);
 		}
 		function startTimelineTicker(record, session) {
 			const total = session.playhead - session.timelineStart;
@@ -1082,15 +1165,17 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 			record.row.remove();
 			updateCount();
 		}
-		function beginRecord(text) {
+		function beginRecord(text, tts) {
 			const record = {
 				text,
+				tts,
 				time: Date.now(),
 				state: "capturing",
-				chunks: [],
+				segments: [],
 				bytes: 0,
 				seconds: 0,
 				url: null,
+				audio: null,
 				sampleRate: DEFAULT_SAMPLE_RATE
 			};
 			const row = document.createElement("div");
@@ -1132,7 +1217,19 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 			deleteButton.textContent = "✕";
 			deleteButton.setAttribute("aria-label", "删除");
 			acts.append(playButton, downloadButton, deleteButton);
-			mid.append(txt, acts, bar);
+			const segs = document.createElement("details");
+			segs.className = "segs";
+			segs.open = true;
+			const segSummary = document.createElement("summary");
+			segSummary.append("分段 ");
+			const segCount = document.createElement("span");
+			segCount.className = "segCount";
+			segCount.textContent = "0";
+			segSummary.appendChild(segCount);
+			const segList = document.createElement("div");
+			segList.className = "segList";
+			segs.append(segSummary, segList);
+			mid.append(txt, acts, bar, segs);
 			row.append(meta, mid);
 			ui.list.insertBefore(row, ui.list.firstChild);
 			bar.classList.add("show");
@@ -1142,7 +1239,18 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 				playButton,
 				downloadButton,
 				bar,
-				fill
+				fill,
+				segs,
+				segList,
+				segCount
+			});
+			bar.addEventListener("click", (event) => {
+				const audio = record.audio;
+				if (!audio || !Number.isFinite(audio.duration) || !audio.duration) return;
+				const rect = bar.getBoundingClientRect();
+				const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+				audio.currentTime = ratio * audio.duration;
+				fill.style.width = `${ratio * 100}%`;
 			});
 			playButton.addEventListener("click", () => {
 				if (record.state === "capturing") {
@@ -1162,7 +1270,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 				stopTimeline(activeTimeline);
 				if (!record.audio) {
 					const audio = new Audio(record.url);
-					record.audio = audio;
 					audio.addEventListener("pause", syncPlayState);
 					audio.addEventListener("ended", () => {
 						fill.style.width = "0%";
@@ -1173,14 +1280,9 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 						if (!Number.isFinite(audio.duration) || !audio.duration) return;
 						fill.style.width = `${audio.currentTime / audio.duration * 100}%`;
 					});
-					bar.addEventListener("click", (event) => {
-						if (!Number.isFinite(audio.duration) || !audio.duration) return;
-						const rect = bar.getBoundingClientRect();
-						const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-						audio.currentTime = ratio * audio.duration;
-						fill.style.width = `${ratio * 100}%`;
-					});
+					record.audio = audio;
 				}
+				record.audio.playbackRate = playRate;
 				activeAudio = record.audio;
 				bar.classList.add("show");
 				record.audio.play().then(syncPlayState, syncPlayState);
@@ -1200,6 +1302,137 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 			updateCount();
 			return record;
 		}
+		function formatSegmentDuration(seconds) {
+			if (seconds < 10) return `${seconds.toFixed(1)}s`;
+			return formatDuration(seconds);
+		}
+		function setSegmentsEnabled(record, enabled) {
+			for (const segment of record.segments) if (!segment.busy) segment.regenButton.disabled = !enabled;
+		}
+		function createSegment(record, text) {
+			const segment = {
+				text,
+				chunks: [],
+				bytes: 0,
+				busy: false
+			};
+			record.segments.push(segment);
+			const row = document.createElement("div");
+			row.className = "seg";
+			const idx = document.createElement("span");
+			idx.className = "idx";
+			idx.textContent = String(record.segments.length);
+			const label = document.createElement("span");
+			label.className = "segText";
+			label.textContent = previewText(text).slice(0, 24) || "（无文本）";
+			label.title = text;
+			const segDuration = document.createElement("span");
+			segDuration.className = "segDur";
+			segDuration.textContent = "…";
+			const regenButton = document.createElement("button");
+			regenButton.textContent = "重生成";
+			regenButton.disabled = record.state !== "ready";
+			regenButton.addEventListener("click", () => regenerateSegment(record, segment));
+			row.append(idx, label, segDuration, regenButton);
+			record.segList.appendChild(row);
+			record.segCount.textContent = String(record.segments.length);
+			Object.assign(segment, {
+				row,
+				durationEl: segDuration,
+				regenButton
+			});
+			return segment;
+		}
+		function dropAudio(record) {
+			if (record.audio) {
+				if (record.audio === activeAudio) activeAudio = null;
+				record.audio.pause();
+				record.audio = null;
+			}
+			record.fill.style.width = "0%";
+			record.bar.classList.remove("show");
+			record.playButton.textContent = "播放";
+			record.playButton.classList.remove("playing");
+		}
+		function rebuildRecord(record) {
+			if (record.url) URL.revokeObjectURL(record.url);
+			record.url = null;
+			const total = record.segments.reduce((sum, segment) => sum + segment.bytes, 0);
+			const even = total - total % 2;
+			if (!even) {
+				markFailed(record);
+				return;
+			}
+			const chunks = [];
+			for (const segment of record.segments) chunks.push(...segment.chunks);
+			const pcm = joinedPcm(chunks, even);
+			record.url = URL.createObjectURL(pcmToWav(pcm, record.sampleRate));
+			record.bytes = even;
+			record.seconds = even / 2 / record.sampleRate;
+			record.duration.textContent = formatDuration(record.seconds);
+			record.downloadButton.disabled = false;
+		}
+		async function regenerateSegment(record, segment) {
+			if (segment.busy || record.regenerating) return;
+			if (record.state === "playing") stopTimeline(record);
+			if (record.state !== "ready") return;
+			record.regenerating = true;
+			setSegmentsEnabled(record, false);
+			segment.busy = true;
+			segment.regenButton.disabled = true;
+			segment.regenButton.textContent = "重生成中";
+			let ok = false;
+			try {
+				const response = await window.fetch(TTS_PATH, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						[SEGMENT_HEADER]: "1"
+					},
+					body: JSON.stringify({
+						text: segment.text,
+						voice: record.tts.voice,
+						rate: record.tts.rate,
+						format: record.tts.format
+					})
+				});
+				if (!response.ok) throw new Error(`tts ${response.status}`);
+				if ((Number(response.headers.get("X-Sample-Rate")) || DEFAULT_SAMPLE_RATE) !== record.sampleRate) throw new Error("sample rate mismatch");
+				const reader = response.body.getReader();
+				const chunks = [];
+				let bytes = 0;
+				for (;;) {
+					const { done, value } = await reader.read();
+					if (done) break;
+					if (!value || !value.length) continue;
+					chunks.push(value);
+					bytes += value.length;
+				}
+				if (!bytes) throw new Error("empty");
+				if (bytes % 2) {
+					const last = chunks[chunks.length - 1];
+					chunks[chunks.length - 1] = last.subarray(0, last.length - 1);
+					bytes -= 1;
+				}
+				if (!records.includes(record)) return;
+				dropAudio(record);
+				segment.chunks = chunks;
+				segment.bytes = bytes;
+				segment.durationEl.textContent = formatSegmentDuration(bytes / 2 / record.sampleRate);
+				rebuildRecord(record);
+				ok = true;
+			} catch (error) {
+				segment.regenButton.textContent = "失败";
+				setTimeout(() => {
+					if (segment.regenButton.textContent === "失败") segment.regenButton.textContent = "重生成";
+				}, 1500);
+			} finally {
+				segment.busy = false;
+				record.regenerating = false;
+				if (ok) segment.regenButton.textContent = "重生成";
+				setSegmentsEnabled(record, record.state === "ready");
+			}
+		}
 		function updateProgress(record, done, total) {
 			if (!records.includes(record)) return;
 			if (total > 1) {
@@ -1218,6 +1451,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 			record.playButton.textContent = "播放";
 			record.playButton.disabled = true;
 			record.downloadButton.disabled = true;
+			setSegmentsEnabled(record, false);
 		}
 		function finalizeRecord(record) {
 			if (!records.includes(record) || record.state !== "capturing") return;
@@ -1228,8 +1462,9 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 				markFailed(record);
 				return;
 			}
-			const pcm = joinedPcm(record.chunks, evenLength);
-			record.chunks = [];
+			const chunks = [];
+			for (const segment of record.segments) chunks.push(...segment.chunks);
+			const pcm = joinedPcm(chunks, evenLength);
 			record.url = URL.createObjectURL(pcmToWav(pcm, record.sampleRate));
 			record.seconds = evenLength / 2 / record.sampleRate;
 			record.state = "ready";
@@ -1240,6 +1475,8 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 			record.playButton.textContent = "播放";
 			record.playButton.disabled = false;
 			record.downloadButton.disabled = false;
+			for (const segment of record.segments) segment.durationEl.textContent = formatSegmentDuration(segment.bytes / 2 / record.sampleRate);
+			setSegmentsEnabled(record, true);
 			if (session && !session.stopped && session.sources.length && session.playhead > session.context.currentTime + .05) {
 				if (activeTimeline && activeTimeline !== record) stopTimeline(activeTimeline);
 				record.state = "playing";
@@ -1302,11 +1539,12 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 			buffer.copyToChannel(samples, 0);
 			const source = context.createBufferSource();
 			source.buffer = buffer;
+			source.playbackRate.value = session.speed;
 			source.connect(context.destination);
 			const startAt = Math.max(session.playhead, context.currentTime + .06);
 			source.start(startAt);
 			if (session.timelineStart === null) session.timelineStart = startAt;
-			session.playhead = startAt + buffer.duration;
+			session.playhead = startAt + buffer.duration / session.speed;
 			source.onended = () => {
 				const index = session.sources.indexOf(source);
 				if (index >= 0) session.sources.splice(index, 1);
@@ -1348,13 +1586,18 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 			stopActive();
 			const tasks = splitText(text);
 			if (!tasks.length) return null;
-			const record = beginRecord(text);
+			const record = beginRecord(text, {
+				voice,
+				rate,
+				format
+			});
 			ensureAudioContext();
 			const session = {
 				record,
 				stopped: false,
 				playhead: 0,
 				started: false,
+				speed: playRate,
 				pending: [],
 				pendingBytes: 0,
 				timelineStart: null,
@@ -1406,16 +1649,19 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 				}
 				return requestSegment(piece);
 			};
-			const consume = async (response) => {
+			const consume = async (response, piece) => {
 				const reader = response.body.getReader();
 				let leftover = new Uint8Array(0);
+				let segment = null;
+				const ensureSegment = () => {
+					if (!segment) segment = createSegment(record, piece);
+					return segment;
+				};
 				for (;;) {
 					const { done, value } = await reader.read();
 					if (done) break;
 					if (!value || !value.length || session.stopped) continue;
 					if (record.bytes + value.length > MAX_PCM_BYTES) continue;
-					record.chunks.push(value);
-					record.bytes += value.length;
 					let data = value;
 					if (leftover.length) {
 						data = new Uint8Array(leftover.length + value.length);
@@ -1423,9 +1669,17 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 						data.set(value, leftover.length);
 					}
 					const evenLength = data.length - data.length % 2;
-					if (evenLength) schedulePcm(session, data.subarray(0, evenLength));
+					if (evenLength) {
+						const part = data.subarray(0, evenLength);
+						const target = ensureSegment();
+						target.chunks.push(part);
+						target.bytes += evenLength;
+						record.bytes += evenLength;
+						schedulePcm(session, part);
+					}
 					leftover = data.subarray(evenLength);
 				}
+				if (segment) segment.durationEl.textContent = formatSegmentDuration(segment.bytes / 2 / record.sampleRate);
 				flushPending(session);
 			};
 			const speak = async (piece) => {
@@ -1434,7 +1688,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 					const response = await takePrefetch(piece);
 					if (session.stopped) return "done";
 					if (tasks.length) startPrefetch(tasks[0]);
-					await consume(response);
+					await consume(response, piece);
 					return "done";
 				} catch (error) {
 					if (session.stopped || session.controller.signal.aborted) return "done";
