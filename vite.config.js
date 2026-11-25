@@ -12,7 +12,7 @@ export default defineConfig({
       userscript: {
         name: 'PornhubTools',
         namespace: 'https://github.com/sherlocknieh/',
-        version: '2026.11.25.1534',
+        version: '2026.11.25.1557',
         description: '增强一些XX网站的浏览体验',
         icon: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(ICON_SVG),
         match: MATCH_PATTERNS,
@@ -20,4 +20,7 @@ export default defineConfig({
       },
     }),
   ],
+  server: {
+    open: true,
+  },
 });

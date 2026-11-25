@@ -1,12 +1,18 @@
-// 思畅 AI 的「朗读」按钮请求 POST /api/tts，拿回 24kHz 单声道 PCM16 流，
-// 页面自己用 Web Audio 边下边播，所以 <audio> 元素里没有可下载的音频。
-// 这里在 fetch 响应旁边克隆一份流，封装成 WAV 落到右下角面板，供试听和下载。
+// 思畅 AI 的「朗读」请求 POST /api/tts，拿回 24kHz 单声道 PCM16 流由页面边下边播。
+// 这里直接接管这个请求：官方不会再整段合成，而是按句子分批请求、边下边播；
+// 每段的 PCM 同时拼成一条 WAV 放进右下角面板，供试听和下载。
+// 分段是为了长文本更稳：整段失败就什么都没了，分段后单段失败还能重试或再拆开。
 const TTS_PATH = '/api/tts';
 const PANEL_ID = 'sichang-tts-capture';
 const DEFAULT_SAMPLE_RATE = 24000;
 const MAX_RECORDS = 20;
-// 单条最长约 22 分钟；超出后继续把流读完（避免克隆分支积压），但不再保存
+// 单段上限：太短会切碎语气，太长又容易让合成失败，取 160 字
+const MAX_SEGMENT_CHARS = 160;
+const MAX_ATTEMPTS = 2;
+// 单条最长约 22 分钟；超出后不再累积，避免长对话把内存吃满
 const MAX_PCM_BYTES = 64 * 1024 * 1024;
+// 脚本自己发的分段请求带这个头，用来和官方请求区分，避免无限接管
+const SEGMENT_HEADER = 'X-Sichang-Segment';
 
 const PANEL_CSS = `
 :host { all: initial; }
@@ -94,6 +100,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .bar.show { display: block; }
 .bar .fill { height: 100%; width: 0; background: #5a9e6b; transition: width .15s linear; }
 .item[data-live] .bar .fill { width: 35%; background: #d8b46a; animation: tts-slide 1.1s ease-in-out infinite; }
+.item[data-live] .bar.determinate .fill { animation: none; }
 @keyframes tts-slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
 @media (max-width: 480px) {
     .panel { width: calc(100vw - 24px); }
@@ -180,12 +187,55 @@ function joinedPcm(chunks, length) {
     return pcm;
 }
 
+// 先按句末标点和换行切开，再把短句攒到接近上限，避免一句话被硬生生截断
+function splitText(text) {
+    const normalized = String(text || '').replace(/\r/g, '').trim();
+    if (!normalized) return [];
+    const parts = normalized.split(/(?<=[。！？!?；;…\n])/).filter(part => part.trim());
+    const chunks = [];
+    let current = '';
+    const flush = () => {
+        if (current.trim()) chunks.push(current.trim());
+        current = '';
+    };
+    for (let part of parts) {
+        while (part.length > MAX_SEGMENT_CHARS) {
+            flush();
+            chunks.push(part.slice(0, MAX_SEGMENT_CHARS));
+            part = part.slice(MAX_SEGMENT_CHARS);
+        }
+        if (current.length + part.length > MAX_SEGMENT_CHARS) flush();
+        current += part;
+    }
+    flush();
+    return chunks;
+}
+
+function splitInHalf(text) {
+    if (text.length < 40) return null;
+    const middle = Math.floor(text.length / 2);
+    // 尽量在标点处断开，找不到就硬切
+    const before = text.lastIndexOf('，', middle);
+    const cut = before > text.length * 0.3 ? before + 1 : middle;
+    return [text.slice(0, cut), text.slice(cut)];
+}
+
 export default function initSichangHandler() {
     if (window.location.hostname !== 'sichang.xyz') return;
 
     const ui = createPanel();
     const records = [];
     let activeAudio = null;
+    let activeSession = null;
+    let audioContext = null;
+
+    function ensureAudioContext() {
+        if (!audioContext || audioContext.state === 'closed') {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioContext.state === 'suspended') audioContext.resume().catch(() => {});
+        return audioContext;
+    }
 
     function updateCount() {
         ui.count.textContent = String(records.length);
@@ -197,11 +247,11 @@ export default function initSichangHandler() {
         if (activeAudio && !activeAudio.paused) activeAudio.pause();
     }
 
-    // 单条播放结束或被打断时，把按钮文字和状态一起改回来
+    // 单条播放结束或被打断时，把按钮文字和状态一起改回来；捕获中的行不参与
     function syncPlayState() {
         for (const record of records) {
+            if (record.state !== 'ready' || !record.playButton) continue;
             const playing = Boolean(record.audio && !record.audio.paused);
-            if (!record.playButton) continue;
             record.playButton.textContent = playing ? '暂停' : '播放';
             record.playButton.classList.toggle('playing', playing);
         }
@@ -212,16 +262,13 @@ export default function initSichangHandler() {
         if (index >= 0) records.splice(index, 1);
         if (record.audio === activeAudio) activeAudio = null;
         record.audio?.pause();
+        record.session?.abort();
         if (record.url) URL.revokeObjectURL(record.url);
-        // 还在传输中的记录要主动断开克隆分支，否则读循环会一直挂着
-        try {
-            record.reader?.cancel().catch(() => {});
-        } catch {}
         record.row.remove();
         updateCount();
     }
 
-    // 请求一返回就先占一行，流还在传时显示「捕获中」，结束时再补齐时长和按钮
+    // 请求一返回就先占一行，流还在合成时显示进度，结束时再补齐时长和按钮
     function beginRecord(text) {
         const record = {
             text,
@@ -231,6 +278,7 @@ export default function initSichangHandler() {
             bytes: 0,
             seconds: 0,
             url: null,
+            sampleRate: DEFAULT_SAMPLE_RATE,
         };
 
         const row = document.createElement('div');
@@ -261,9 +309,8 @@ export default function initSichangHandler() {
         const acts = document.createElement('div');
         acts.className = 'acts';
         const playButton = document.createElement('button');
-        playButton.textContent = '播放';
-        playButton.setAttribute('aria-label', '播放');
-        playButton.disabled = true;
+        playButton.textContent = '停止';
+        playButton.setAttribute('aria-label', '停止合成');
         const downloadButton = document.createElement('button');
         downloadButton.textContent = '下载';
         downloadButton.setAttribute('aria-label', '下载 WAV');
@@ -281,6 +328,10 @@ export default function initSichangHandler() {
         Object.assign(record, { row, duration, playButton, downloadButton, bar, fill });
 
         playButton.addEventListener('click', () => {
+            if (record.state === 'capturing') {
+                record.session?.stop();
+                return;
+            }
             if (record.audio && !record.audio.paused) {
                 record.audio.pause();
                 return;
@@ -330,23 +381,46 @@ export default function initSichangHandler() {
         return record;
     }
 
-    function finalizeRecord(record, sampleRate) {
-        // 捕获中被删掉或被挤出列表的记录不再落盘
+    function updateProgress(record, done, total) {
         if (!records.includes(record)) return;
+        if (total > 1) {
+            record.bar.classList.add('determinate');
+            record.duration.textContent = `${done}/${total}`;
+            record.fill.style.width = `${(done / total) * 100}%`;
+        }
+    }
+
+    function markFailed(record) {
+        if (!records.includes(record)) return;
+        record.state = 'failed';
+        record.session = null;
+        record.row.removeAttribute('data-live');
+        record.bar.classList.remove('show');
+        record.duration.textContent = '失败';
+        record.playButton.textContent = '播放';
+        record.playButton.disabled = true;
+        record.downloadButton.disabled = true;
+    }
+
+    function finalizeRecord(record) {
+        // 捕获中被删掉或被挤出列表的记录不再落盘
+        if (!records.includes(record) || record.state !== 'capturing') return;
         const evenLength = record.bytes - (record.bytes % 2);
+        record.session = null;
         if (!evenLength) {
-            removeRecord(record);
+            markFailed(record);
             return;
         }
         const pcm = joinedPcm(record.chunks, evenLength);
         record.chunks = [];
-        record.reader = null;
-        record.url = URL.createObjectURL(pcmToWav(pcm, sampleRate));
-        record.seconds = evenLength / 2 / sampleRate;
+        record.url = URL.createObjectURL(pcmToWav(pcm, record.sampleRate));
+        record.seconds = evenLength / 2 / record.sampleRate;
         record.state = 'ready';
         record.row.removeAttribute('data-live');
         record.bar.classList.remove('show');
+        record.bar.classList.remove('determinate');
         record.duration.textContent = formatDuration(record.seconds);
+        record.playButton.textContent = '播放';
         record.playButton.disabled = false;
         record.downloadButton.disabled = false;
     }
@@ -356,58 +430,230 @@ export default function initSichangHandler() {
         activeAudio = null;
     });
 
-    async function capture(response, text) {
-        const sampleRate = Number(response.headers.get('X-Sample-Rate')) || DEFAULT_SAMPLE_RATE;
-        let reader;
-        try {
-            reader = response.clone().body?.getReader();
-        } catch {
-            return;
+    // 把一段 PCM 排进 Web Audio 的播放时间线，段与段之间按上一段的结束时间接续
+    function schedulePcm(session, bytes) {
+        const count = bytes.byteLength / 2;
+        if (!count) return;
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const samples = new Float32Array(count);
+        for (let i = 0; i < count; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
+        const context = ensureAudioContext();
+        const buffer = context.createBuffer(1, count, session.sampleRate);
+        buffer.copyToChannel(samples, 0);
+        const source = context.createBufferSource();
+        source.buffer = buffer;
+        source.connect(context.destination);
+        const startAt = Math.max(session.playhead, context.currentTime + 0.06);
+        source.start(startAt);
+        session.playhead = startAt + buffer.duration;
+        // 播完就从时间线里摘掉，避免长文本攒下成千上万个节点
+        source.onended = () => {
+            const index = session.sources.indexOf(source);
+            if (index >= 0) session.sources.splice(index, 1);
+        };
+        session.sources.push(source);
+    }
+
+    function stopSources(session) {
+        for (const source of session.sources) {
+            try {
+                source.stop();
+            } catch {}
         }
-        if (!reader) return;
+        session.sources.length = 0;
+    }
+
+    function startSession({ text, voice, rate, format }) {
+        activeSession?.stop();
+        // 官方朗读和面板试听互斥，避免两路声音叠在一起
+        stopActive();
+        const tasks = splitText(text);
+        if (!tasks.length) return null;
 
         const record = beginRecord(text);
-        record.reader = reader;
-        try {
+        // 在点击的同一个任务里解锁音频上下文，后面数据到了才能直接出声
+        ensureAudioContext();
+        const session = {
+            record,
+            stopped: false,
+            playhead: 0,
+            sources: [],
+            sampleRate: DEFAULT_SAMPLE_RATE,
+            controller: new AbortController(),
+            total: tasks.length,
+            done: 0,
+        };
+        record.session = session;
+        activeSession = session;
+        updateProgress(record, 0, session.total);
+
+        const requestSegment = segmentText => window.fetch(TTS_PATH, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', [SEGMENT_HEADER]: '1' },
+            body: JSON.stringify({ text: segmentText, voice, rate, format }),
+            signal: session.controller.signal,
+        }).then(response => {
+            if (!response.ok) throw new Error(`tts ${response.status}`);
+            const sampleRate = Number(response.headers.get('X-Sample-Rate')) || DEFAULT_SAMPLE_RATE;
+            session.sampleRate = sampleRate;
+            record.sampleRate = sampleRate;
+            return response;
+        });
+
+        // 一次预取下一段：当前段在播时，下一段已经在合成，接缝更短
+        let prefetch = null;
+        const startPrefetch = piece => {
+            if (prefetch) return;
+            const promise = requestSegment(piece);
+            promise.catch(() => {});
+            prefetch = { piece, promise };
+        };
+        const takePrefetch = piece => {
+            if (prefetch && prefetch.piece === piece) {
+                const { promise } = prefetch;
+                prefetch = null;
+                return promise;
+            }
+            return requestSegment(piece);
+        };
+
+        const consume = async response => {
+            const reader = response.body.getReader();
+            let leftover = new Uint8Array(0);
             for (;;) {
                 const { done, value } = await reader.read();
                 if (done) break;
-                if (!records.includes(record)) break;
-                if (!value?.length) continue;
+                if (!value || !value.length || session.stopped) continue;
                 if (record.bytes + value.length > MAX_PCM_BYTES) continue;
                 record.chunks.push(value);
                 record.bytes += value.length;
+
+                let data = value;
+                if (leftover.length) {
+                    data = new Uint8Array(leftover.length + value.length);
+                    data.set(leftover);
+                    data.set(value, leftover.length);
+                }
+                const evenLength = data.length - (data.length % 2);
+                if (evenLength) schedulePcm(session, data.subarray(0, evenLength));
+                leftover = data.subarray(evenLength);
             }
-        } catch {
-            // 页面停止播放会取消流，已读到的部分照常保存
-        }
-        finalizeRecord(record, sampleRate);
+        };
+
+        const speak = async piece => {
+            const bytesBefore = record.bytes;
+            for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+                try {
+                    const response = await takePrefetch(piece);
+                    if (session.stopped) return 'done';
+                    // 当前段开始播时就把下一段发出去，缩短段间等待
+                    if (tasks.length) startPrefetch(tasks[0]);
+                    await consume(response);
+                    return 'done';
+                } catch (error) {
+                    if (session.stopped || session.controller.signal.aborted) return 'done';
+                }
+            }
+            // 已经收到过一部分数据就把这半段当作完成，避免重复播放开头
+            if (record.bytes > bytesBefore) return 'done';
+            const halves = splitInHalf(piece);
+            if (!halves) return 'failed';
+            // 失败的长句拆成两半再排到队首，总段数同步加一
+            tasks.unshift(...halves);
+            session.total += halves.length - 1;
+            return 'split';
+        };
+
+        (async () => {
+            startPrefetch(tasks[0]);
+            while (tasks.length && !session.stopped) {
+                const piece = tasks.shift();
+                const result = await speak(piece);
+                if (session.stopped) break;
+                if (result !== 'split') session.done += 1;
+                updateProgress(record, session.done, session.total);
+            }
+            if (session.stopped) return;
+            finalizeRecord(record);
+        })().catch(() => {
+            if (!session.stopped) finalizeRecord(record);
+        });
+
+        session.stop = () => {
+            if (session.stopped) return;
+            session.stopped = true;
+            try {
+                session.controller.abort();
+            } catch {}
+            stopSources(session);
+            if (activeSession === session) activeSession = null;
+            finalizeRecord(record);
+        };
+        session.abort = () => {
+            session.stopped = true;
+            try {
+                session.controller.abort();
+            } catch {}
+            stopSources(session);
+            if (activeSession === session) activeSession = null;
+        };
+
+        return session;
     }
 
-    function requestText(init) {
-        if (!init || typeof init.body !== 'string') return '';
+    function parseRequest(init) {
+        if (!init || typeof init.body !== 'string') return null;
         try {
-            return JSON.parse(init.body).text || '';
+            const data = JSON.parse(init.body);
+            return { text: data.text || '', voice: data.voice, rate: data.rate, format: data.format || 'pcm16' };
         } catch {
-            return '';
+            return null;
         }
+    }
+
+    function isSegmentRequest(init) {
+        const headers = init && init.headers;
+        if (!headers) return false;
+        if (typeof headers.get === 'function') return headers.get(SEGMENT_HEADER) === '1';
+        return headers[SEGMENT_HEADER] === '1';
+    }
+
+    // 官方播放器拿到的必须是一个能正常结束的响应，否则会弹「语音合成失败」；
+    // 给它一帧静音，让状态机走完，真正的播放交给脚本自己的时间线
+    function silentResponse() {
+        const stream = new ReadableStream({
+            start(controller) {
+                controller.enqueue(new Uint8Array(2));
+                controller.close();
+            },
+        });
+        return new Response(stream, {
+            status: 200,
+            headers: { 'Content-Type': 'audio/pcm', 'X-Sample-Rate': String(DEFAULT_SAMPLE_RATE) },
+        });
     }
 
     const originalFetch = window.fetch;
     window.fetch = function (input, init) {
-        const pending = originalFetch.apply(this, arguments);
         const url = typeof input === 'string' ? input : input?.url || '';
-        if (!url.includes(TTS_PATH)) return pending;
-        return pending.then(response => {
-            if (response.ok) capture(response, requestText(init)).catch(() => {});
-            return response;
-        });
+        if (!url.includes(TTS_PATH) || isSegmentRequest(init)) {
+            return originalFetch.apply(this, arguments);
+        }
+        const request = parseRequest(init);
+        if (request && request.text) startSession(request);
+        return Promise.resolve(silentResponse());
     };
 
     return () => {
         window.fetch = originalFetch;
         for (const record of [...records]) removeRecord(record);
         activeAudio = null;
+        activeSession = null;
+        if (audioContext && audioContext.state !== 'closed') {
+            try {
+                audioContext.close();
+            } catch {}
+        }
         ui.host.remove();
     };
 }
