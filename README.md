@@ -18,4 +18,4 @@
 
 ## 开发
 
-见 [README-dev.md](./README-dev.md)，代码定位见 [AGENTS.md](./AGENTS.md)。
+见 [docs/development.md](./docs/development.md)，代码定位见 [AGENTS.md](./AGENTS.md)。

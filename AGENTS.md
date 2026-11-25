@@ -8,7 +8,7 @@ Vite 构建的浏览器用户脚本（原生 ES modules，无框架），增强 
 | --- | --- |
 | 目录、文件职责、入口生命周期、受支持站点 | `docs/architecture.md` |
 | 改代码的写法约定（handler、清理、选择器、动态 DOM） | `docs/conventions.md` |
-| 开发环境、热更新、版本号与发布机制 | `README-dev.md` |
+| 开发环境、热更新、版本号与发布机制 | `docs/development.md` |
 | 站点改版、选择器失效、脚本不生效 | `docs/known-issues.md` |
 | 新功能与机制的来龙去脉 | `docs/features/`、`docs/logic/`（首次记录时创建） |
 

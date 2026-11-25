@@ -8,7 +8,7 @@
 
 **原因**：目标站点（如 PornHub）的 CSP 拦掉 `localhost:5173` 注入，脚本根本没执行。
 
-**规避**：按 `README-dev.md` 的说明，把 userscript-dev 技能里的 `dev-kit.mjs` 拷到 `.dev/`，用「拉取构建产物再注入」的方式调试；构建产物写 `.dev/build/`，不动要提交的 `dist/`。
+**规避**：按 `development.md` 的说明，把 userscript-dev 技能里的 `dev-kit.mjs` 拷到 `.dev/`，用「拉取构建产物再注入」的方式调试；构建产物写 `.dev/build/`，不动要提交的 `dist/`。
 
 ## 热更新后出现两份功能
 

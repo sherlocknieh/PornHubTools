@@ -51,7 +51,7 @@
 
 ## 构建、版本与发布
 
-机制细节见 `README-dev.md`（开发环境、热更新、CSP 调试、版本号规则），此处只记边界：
+机制细节见 `development.md`（开发环境、热更新、CSP 调试、版本号规则），此处只记边界：
 
 - `vite.config.js` 的 `userscript.version` 由 `.dev/bump-and-build.mjs` 按本地时间写入，格式 `YYYY.MM.DD.HHmm`。
 - `npm run build` 只构建；`npm run release "<msg>"` 升版本、构建、commit、tag、push。

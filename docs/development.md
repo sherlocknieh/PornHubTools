@@ -1,6 +1,6 @@
-# PornHubTool（开发目录）
+# 开发环境与发布
 
-源码在 `src/main.js`，用 [vite-plugin-monkey](https://vite-plugin-monkey.pages.dev/) 调试和构建，原生 ES module + 单引号风格，不引入前端框架。
+源码入口 `src/main.js`，用 [vite-plugin-monkey](https://vite-plugin-monkey.pages.dev/) 调试和构建；原生 ES module + 单引号，不引入前端框架。
 
 ## 开发环境
 
@@ -25,17 +25,16 @@ node .dev/dev-kit.mjs --bundle .dev/build/pornhub-tool.user.js --build "vite bui
 
 ## 版本号与发布
 
-版本号在 `vite.config.js` 的 `userscript.version`，由脚本按本地时间生成 `YYYY.MM.DD.HHmm`，**不要手改，也不要手改 `dist`**。
+版本号在 `vite.config.js` 的 `userscript.version`，由脚本按本地时间生成 `YYYY.MM.DD.HHmm`，不要手改，也不要手改 `dist`。
 
 - 提交前钩子 `.dev/githooks/pre-commit` → `.dev/bump-and-build.mjs`：升版本 → 构建 → 核对产物 `@version`，失败还原配置并中断提交
-- `npm run release "feat: …"`：升版本 → 构建 → commit → tag → push；`--no-push` 只做本地提交与标签，`--dry-run` 只预览版本号
+- `npm run release "feat: …"`：升版本 → 构建 → commit → tag → push；`npm run release "feat: …" -- --no-push` 只做本地提交与标签（`--` 让 npm 把参数透传给脚本），`--dry-run` 只预览版本号
 - `npm run build`：只构建，不改版本号
 
 源码、版本号与 `dist/pornhub-tools.user.js` 永远在同一个提交里。
 
-## 结构
+## 相关文档
 
-- `src/main.js`：唯一入口，按顺序初始化所有 handler
-- `src/core/`、`src/handlers/`：通用能力与各站点 handler，职责见 [AGENTS.md](./AGENTS.md)
-- `.dev/`：版本/发布脚本、提交前钩子、调试产物目录
-- `vite.config.js`：userscript 元数据与构建输出
+- 目录与文件职责、受支持站点：`architecture.md`
+- 编码约定：`conventions.md`
+- 站点改版与调试坑：`known-issues.md`
