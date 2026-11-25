@@ -984,6 +984,13 @@ export default function initSichangHandler() {
         if (savedRate >= 0.5 && savedRate <= 2) ui.rate.value = String(savedRate);
     } catch {}
 
+    // 选完立刻记住：官方按钮也走面板音色，不点「合成」也不会丢这次选择
+    ui.voice.addEventListener('change', () => {
+        try {
+            localStorage.setItem(VOICE_STORE_KEY, ui.voice.value);
+        } catch {}
+    });
+
     ui.input.value = DEFAULT_INPUT_TEXT;
 
     function submitCompose() {
@@ -1292,7 +1299,8 @@ export default function initSichangHandler() {
             return originalFetch.apply(this, arguments);
         }
         const request = parseRequest(init);
-        if (request && request.text) startSession(request);
+        // 官方按钮也跟随面板音色：站点自己带的 voice 不参与，避免两处选择打架
+        if (request && request.text) startSession({ ...request, voice: ui.voice.value || DEFAULT_VOICE });
         return Promise.resolve(silentResponse());
     };
 
