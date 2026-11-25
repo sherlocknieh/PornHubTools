@@ -39,7 +39,7 @@ const VOICE_GROUPS = [
 ];
 const DEFAULT_VOICE = 'mimo_default';
 // 输入框预填的试听文本：短到一次合成就能听完，方便换音色反复试
-const DEFAULT_INPUT_TEXT = '你好，我是思畅。今天天气不错，想试试这段语音听起来怎么样，声音还清楚吗？';
+const DEFAULT_INPUT_TEXT = '你好，我是思畅，今天天气不错。';
 const VOICE_STORE_KEY = 'sichang-tts-voice';
 const RATE_STORE_KEY = 'sichang-tts-rate';
 const FOLD_STORE_KEY = 'sichang-tts-folded';
@@ -200,15 +200,14 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .segs summary::before { content: '▸'; font-size: 9px; transition: transform .15s; }
 .segs[open] summary::before { transform: rotate(90deg); }
 .segs .segCount { color: #b9b9c2; }
+.segBox { border-top: 1px solid #1f1f25; padding: 2px 0; }
+.segBox:first-child { border-top: 0; }
 .seg {
     display: flex;
     align-items: center;
-    gap: 5px;
-    padding: 3px 0;
-    border-top: 1px solid #1f1f25;
+    gap: 4px;
     font-size: 11px;
 }
-.seg:first-child { border-top: 0; }
 .seg .idx { width: 16px; flex: none; text-align: right; color: #6f6f79; }
 .seg .segText {
     flex: 1;
@@ -221,14 +220,27 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .seg .segDur { flex: none; color: #80808a; }
 .seg button {
     flex: none;
-    height: 19px;
-    padding: 0 6px;
+    height: 18px;
+    padding: 0 5px;
     border-radius: 5px;
     background: #2a2a32;
     color: #c9c9d1;
     font-size: 10px;
 }
 .seg button:hover { background: #35353f; color: #fff; }
+.seg .segPlay { width: 20px; padding: 0; font-size: 9px; }
+.seg .segPlay.playing { background: #2d4a33; color: #a9e6b8; }
+.segBar {
+    display: none;
+    height: 2px;
+    margin: 2px 0 3px 20px;
+    border-radius: 1px;
+    background: #2a2a32;
+    overflow: hidden;
+    cursor: pointer;
+}
+.segBar.show { display: block; }
+.segBar .fill { height: 100%; width: 0; background: #5a9e6b; transition: width .1s linear; }
 @media (max-width: 480px) {
     .panel { width: calc(100vw - 24px); }
 }
@@ -424,9 +436,12 @@ export default function initSichangHandler() {
         try {
             localStorage.setItem(PLAY_RATE_STORE_KEY, String(value));
         } catch {}
-        // 正在试听的 WAV 立即换速
+        // 正在试听的 WAV/分段立即换速
         for (const record of records) {
             if (record.audio) record.audio.playbackRate = value;
+            for (const segment of record.segments) {
+                if (segment.audio) segment.audio.playbackRate = value;
+            }
         }
     });
 
@@ -504,6 +519,14 @@ export default function initSichangHandler() {
         clearInterval(record.timelineTicker);
         record.audio?.pause();
         record.session?.abort();
+        for (const segment of record.segments) {
+            if (segment.audio) {
+                if (segment.audio === activeAudio) activeAudio = null;
+                segment.audio.pause();
+                segment.audio = null;
+            }
+            if (segment.url) URL.revokeObjectURL(segment.url);
+        }
         if (activeSession?.record === record) activeSession = null;
         if (record.url) URL.revokeObjectURL(record.url);
         record.row.remove();
@@ -659,14 +682,17 @@ export default function initSichangHandler() {
 
     function setSegmentsEnabled(record, enabled) {
         for (const segment of record.segments) {
-            if (!segment.busy) segment.regenButton.disabled = !enabled;
+            segment.regenButton.disabled = !enabled || segment.busy;
+            segment.playButton.disabled = !enabled || segment.busy || !segment.complete;
         }
     }
 
     // 每段一落数据就建一条子条目，顺序与 WAV 拼接顺序一致
     function createSegment(record, text) {
-        const segment = { text, chunks: [], bytes: 0, busy: false };
+        const segment = { text, chunks: [], bytes: 0, busy: false, complete: false };
         record.segments.push(segment);
+        const box = document.createElement('div');
+        box.className = 'segBox';
         const row = document.createElement('div');
         row.className = 'seg';
         const idx = document.createElement('span');
@@ -679,15 +705,102 @@ export default function initSichangHandler() {
         const segDuration = document.createElement('span');
         segDuration.className = 'segDur';
         segDuration.textContent = '…';
+        const playButton = document.createElement('button');
+        playButton.className = 'segPlay';
+        playButton.textContent = '▶';
+        playButton.setAttribute('aria-label', '播放本段');
+        playButton.disabled = true;
         const regenButton = document.createElement('button');
         regenButton.textContent = '重生成';
-        regenButton.disabled = record.state !== 'ready';
-        regenButton.addEventListener('click', () => regenerateSegment(record, segment));
-        row.append(idx, label, segDuration, regenButton);
-        record.segList.appendChild(row);
+        regenButton.disabled = true;
+        const bar = document.createElement('div');
+        bar.className = 'segBar';
+        bar.setAttribute('role', 'progressbar');
+        const fill = document.createElement('div');
+        fill.className = 'fill';
+        bar.appendChild(fill);
+        row.append(idx, label, segDuration, playButton, regenButton);
+        box.append(row, bar);
+        record.segList.appendChild(box);
         record.segCount.textContent = String(record.segments.length);
-        Object.assign(segment, { row, durationEl: segDuration, regenButton });
+        Object.assign(segment, { box, row, durationEl: segDuration, playButton, regenButton, bar, fill });
+        playButton.addEventListener('click', () => toggleSegmentPlay(record, segment));
+        regenButton.addEventListener('click', () => regenerateSegment(record, segment));
+        // 分段进度条自己跳转，只操作本段的 audio
+        bar.addEventListener('click', event => {
+            const audio = segment.audio;
+            if (!audio || !Number.isFinite(audio.duration) || !audio.duration) return;
+            const rect = bar.getBoundingClientRect();
+            const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+            audio.currentTime = ratio * audio.duration;
+            fill.style.width = `${ratio * 100}%`;
+        });
         return segment;
+    }
+
+    function syncSegmentPlayState(segment) {
+        const playing = Boolean(segment.audio && !segment.audio.paused);
+        segment.playButton.textContent = playing ? '⏸' : '▶';
+        segment.playButton.setAttribute('aria-label', playing ? '暂停本段' : '播放本段');
+        segment.playButton.classList.toggle('playing', playing);
+    }
+
+    // 段的 WAV 按需生成：没点播放就不复制 PCM，避免长记录成倍占内存
+    function ensureSegmentUrl(record, segment) {
+        if (!segment.url) {
+            const even = segment.bytes - (segment.bytes % 2);
+            segment.url = URL.createObjectURL(pcmToWav(joinedPcm(segment.chunks, even), record.sampleRate));
+        }
+        return segment.url;
+    }
+
+    function clearSegmentAudio(segment) {
+        if (segment.audio) {
+            if (segment.audio === activeAudio) activeAudio = null;
+            segment.audio.pause();
+            segment.audio = null;
+        }
+        if (segment.url) {
+            URL.revokeObjectURL(segment.url);
+            segment.url = null;
+        }
+        segment.bar.classList.remove('show');
+        segment.fill.style.width = '0%';
+        syncSegmentPlayState(segment);
+    }
+
+    function toggleSegmentPlay(record, segment) {
+        if (!segment.complete || segment.busy || record.regenerating) return;
+        // 时间线还在播时点某一段，先停整体播放，避免两路声音叠在一起
+        if (record.state === 'playing') stopTimeline(record);
+        if (record.state !== 'ready') return;
+        if (segment.audio && !segment.audio.paused) {
+            segment.audio.pause();
+            return;
+        }
+        stopActive();
+        stopTimeline(activeTimeline);
+        if (!segment.audio) {
+            const audio = new Audio(ensureSegmentUrl(record, segment));
+            audio.preservesPitch = true;
+            audio.mozPreservesPitch = true;
+            audio.webkitPreservesPitch = true;
+            audio.addEventListener('pause', () => syncSegmentPlayState(segment));
+            audio.addEventListener('ended', () => {
+                segment.bar.classList.remove('show');
+                segment.fill.style.width = '0%';
+                syncSegmentPlayState(segment);
+            });
+            audio.addEventListener('timeupdate', () => {
+                if (!Number.isFinite(audio.duration) || !audio.duration) return;
+                segment.fill.style.width = `${(audio.currentTime / audio.duration) * 100}%`;
+            });
+            segment.audio = audio;
+        }
+        segment.audio.playbackRate = playRate;
+        activeAudio = segment.audio;
+        segment.bar.classList.add('show');
+        segment.audio.play().then(() => syncSegmentPlayState(segment), () => syncSegmentPlayState(segment));
     }
 
     function dropAudio(record) {
@@ -695,6 +808,17 @@ export default function initSichangHandler() {
             if (record.audio === activeAudio) activeAudio = null;
             record.audio.pause();
             record.audio = null;
+        }
+        // 整条试听要停时，分段试听也一起停，避免残留声音
+        for (const segment of record.segments) {
+            if (segment.audio) {
+                if (segment.audio === activeAudio) activeAudio = null;
+                segment.audio.pause();
+                segment.audio = null;
+                segment.bar.classList.remove('show');
+                segment.fill.style.width = '0%';
+                syncSegmentPlayState(segment);
+            }
         }
         record.fill.style.width = '0%';
         record.bar.classList.remove('show');
@@ -768,6 +892,7 @@ export default function initSichangHandler() {
             }
             // 记录可能在合成途中被删掉或被挤出列表
             if (!records.includes(record)) return;
+            clearSegmentAudio(segment);
             dropAudio(record);
             segment.chunks = chunks;
             segment.bytes = bytes;
@@ -1026,38 +1151,42 @@ export default function initSichangHandler() {
                 if (!segment) segment = createSegment(record, piece);
                 return segment;
             };
-            for (;;) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                if (!value || !value.length || session.stopped) continue;
-                if (record.bytes + value.length > MAX_PCM_BYTES) continue;
+            try {
+                for (;;) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    if (!value || !value.length || session.stopped) continue;
+                    if (record.bytes + value.length > MAX_PCM_BYTES) continue;
 
-                let data = value;
-                if (leftover.length) {
-                    data = new Uint8Array(leftover.length + value.length);
-                    data.set(leftover);
-                    data.set(value, leftover.length);
+                    let data = value;
+                    if (leftover.length) {
+                        data = new Uint8Array(leftover.length + value.length);
+                        data.set(leftover);
+                        data.set(value, leftover.length);
+                    }
+                    const evenLength = data.length - (data.length % 2);
+                    if (evenLength) {
+                        const part = data.subarray(0, evenLength);
+                        const target = ensureSegment();
+                        target.chunks.push(part);
+                        target.bytes += evenLength;
+                        record.bytes += evenLength;
+                        schedulePcm(session, part);
+                    }
+                    leftover = data.subarray(evenLength);
                 }
-                const evenLength = data.length - (data.length % 2);
-                if (evenLength) {
-                    const part = data.subarray(0, evenLength);
-                    const target = ensureSegment();
-                    target.chunks.push(part);
-                    target.bytes += evenLength;
-                    record.bytes += evenLength;
-                    schedulePcm(session, part);
+            } finally {
+                if (segment) {
+                    segment.complete = true;
+                    segment.durationEl.textContent = formatSegmentDuration(segment.bytes / 2 / record.sampleRate);
                 }
-                leftover = data.subarray(evenLength);
-            }
-            if (segment) {
-                segment.durationEl.textContent = formatSegmentDuration(segment.bytes / 2 / record.sampleRate);
             }
             // 整段比预缓冲还短时也要起播，不能一直攒着
             flushPending(session);
         };
 
         const speak = async piece => {
-            const bytesBefore = record.bytes;
+            const segmentsBefore = record.segments.length;
             for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
                 try {
                     const response = await takePrefetch(piece);
@@ -1068,10 +1197,12 @@ export default function initSichangHandler() {
                     return 'done';
                 } catch (error) {
                     if (session.stopped || session.controller.signal.aborted) return 'done';
+                    // 这一轮已经收到过数据就不再重试，否则同一段会重复拼进 WAV
+                    if (record.segments.length > segmentsBefore) return 'done';
                 }
             }
             // 已经收到过一部分数据就把这半段当作完成，避免重复播放开头
-            if (record.bytes > bytesBefore) return 'done';
+            if (record.segments.length > segmentsBefore) return 'done';
             const halves = splitInHalf(piece);
             if (!halves) return 'failed';
             // 失败的长句拆成两半再排到队首，总段数同步加一

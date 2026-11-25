@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PornhubTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.25.1649
+// @version      2026.11.25.1659
 // @description  增强一些XX网站的浏览体验
 // @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22%23000%22%20fill-opacity%3D%220.75%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2232%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%20font-size%3D%2232%22%20fill%3D%22%23fff%22%3EPH%3C%2Ftext%3E%0A%3C%2Fsvg%3E
 // @match        https://greasyfork.org/*
@@ -725,7 +725,7 @@
 		]
 	}];
 	var DEFAULT_VOICE = "mimo_default";
-	var DEFAULT_INPUT_TEXT = "你好，我是思畅。今天天气不错，想试试这段语音听起来怎么样，声音还清楚吗？";
+	var DEFAULT_INPUT_TEXT = "你好，我是思畅，今天天气不错。";
 	var VOICE_STORE_KEY = "sichang-tts-voice";
 	var RATE_STORE_KEY = "sichang-tts-rate";
 	var FOLD_STORE_KEY = "sichang-tts-folded";
@@ -892,15 +892,14 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .segs summary::before { content: '▸'; font-size: 9px; transition: transform .15s; }
 .segs[open] summary::before { transform: rotate(90deg); }
 .segs .segCount { color: #b9b9c2; }
+.segBox { border-top: 1px solid #1f1f25; padding: 2px 0; }
+.segBox:first-child { border-top: 0; }
 .seg {
     display: flex;
     align-items: center;
-    gap: 5px;
-    padding: 3px 0;
-    border-top: 1px solid #1f1f25;
+    gap: 4px;
     font-size: 11px;
 }
-.seg:first-child { border-top: 0; }
 .seg .idx { width: 16px; flex: none; text-align: right; color: #6f6f79; }
 .seg .segText {
     flex: 1;
@@ -913,14 +912,27 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .seg .segDur { flex: none; color: #80808a; }
 .seg button {
     flex: none;
-    height: 19px;
-    padding: 0 6px;
+    height: 18px;
+    padding: 0 5px;
     border-radius: 5px;
     background: #2a2a32;
     color: #c9c9d1;
     font-size: 10px;
 }
 .seg button:hover { background: #35353f; color: #fff; }
+.seg .segPlay { width: 20px; padding: 0; font-size: 9px; }
+.seg .segPlay.playing { background: #2d4a33; color: #a9e6b8; }
+.segBar {
+    display: none;
+    height: 2px;
+    margin: 2px 0 3px 20px;
+    border-radius: 1px;
+    background: #2a2a32;
+    overflow: hidden;
+    cursor: pointer;
+}
+.segBar.show { display: block; }
+.segBar .fill { height: 100%; width: 0; background: #5a9e6b; transition: width .1s linear; }
 @media (max-width: 480px) {
     .panel { width: calc(100vw - 24px); }
 }
@@ -1099,7 +1111,10 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 			try {
 				localStorage.setItem(PLAY_RATE_STORE_KEY, String(value));
 			} catch {}
-			for (const record of records) if (record.audio) record.audio.playbackRate = value;
+			for (const record of records) {
+				if (record.audio) record.audio.playbackRate = value;
+				for (const segment of record.segments) if (segment.audio) segment.audio.playbackRate = value;
+			}
 		});
 		function ensureAudioContext() {
 			if (!audioContext || audioContext.state === "closed") audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -1161,6 +1176,14 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 			clearInterval(record.timelineTicker);
 			record.audio?.pause();
 			record.session?.abort();
+			for (const segment of record.segments) {
+				if (segment.audio) {
+					if (segment.audio === activeAudio) activeAudio = null;
+					segment.audio.pause();
+					segment.audio = null;
+				}
+				if (segment.url) URL.revokeObjectURL(segment.url);
+			}
 			if (activeSession?.record === record) activeSession = null;
 			if (record.url) URL.revokeObjectURL(record.url);
 			record.row.remove();
@@ -1311,16 +1334,22 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 			return formatDuration(seconds);
 		}
 		function setSegmentsEnabled(record, enabled) {
-			for (const segment of record.segments) if (!segment.busy) segment.regenButton.disabled = !enabled;
+			for (const segment of record.segments) {
+				segment.regenButton.disabled = !enabled || segment.busy;
+				segment.playButton.disabled = !enabled || segment.busy || !segment.complete;
+			}
 		}
 		function createSegment(record, text) {
 			const segment = {
 				text,
 				chunks: [],
 				bytes: 0,
-				busy: false
+				busy: false,
+				complete: false
 			};
 			record.segments.push(segment);
+			const box = document.createElement("div");
+			box.className = "segBox";
 			const row = document.createElement("div");
 			row.className = "seg";
 			const idx = document.createElement("span");
@@ -1333,25 +1362,117 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 			const segDuration = document.createElement("span");
 			segDuration.className = "segDur";
 			segDuration.textContent = "…";
+			const playButton = document.createElement("button");
+			playButton.className = "segPlay";
+			playButton.textContent = "▶";
+			playButton.setAttribute("aria-label", "播放本段");
+			playButton.disabled = true;
 			const regenButton = document.createElement("button");
 			regenButton.textContent = "重生成";
-			regenButton.disabled = record.state !== "ready";
-			regenButton.addEventListener("click", () => regenerateSegment(record, segment));
-			row.append(idx, label, segDuration, regenButton);
-			record.segList.appendChild(row);
+			regenButton.disabled = true;
+			const bar = document.createElement("div");
+			bar.className = "segBar";
+			bar.setAttribute("role", "progressbar");
+			const fill = document.createElement("div");
+			fill.className = "fill";
+			bar.appendChild(fill);
+			row.append(idx, label, segDuration, playButton, regenButton);
+			box.append(row, bar);
+			record.segList.appendChild(box);
 			record.segCount.textContent = String(record.segments.length);
 			Object.assign(segment, {
+				box,
 				row,
 				durationEl: segDuration,
-				regenButton
+				playButton,
+				regenButton,
+				bar,
+				fill
+			});
+			playButton.addEventListener("click", () => toggleSegmentPlay(record, segment));
+			regenButton.addEventListener("click", () => regenerateSegment(record, segment));
+			bar.addEventListener("click", (event) => {
+				const audio = segment.audio;
+				if (!audio || !Number.isFinite(audio.duration) || !audio.duration) return;
+				const rect = bar.getBoundingClientRect();
+				const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+				audio.currentTime = ratio * audio.duration;
+				fill.style.width = `${ratio * 100}%`;
 			});
 			return segment;
+		}
+		function syncSegmentPlayState(segment) {
+			const playing = Boolean(segment.audio && !segment.audio.paused);
+			segment.playButton.textContent = playing ? "⏸" : "▶";
+			segment.playButton.setAttribute("aria-label", playing ? "暂停本段" : "播放本段");
+			segment.playButton.classList.toggle("playing", playing);
+		}
+		function ensureSegmentUrl(record, segment) {
+			if (!segment.url) {
+				const even = segment.bytes - segment.bytes % 2;
+				segment.url = URL.createObjectURL(pcmToWav(joinedPcm(segment.chunks, even), record.sampleRate));
+			}
+			return segment.url;
+		}
+		function clearSegmentAudio(segment) {
+			if (segment.audio) {
+				if (segment.audio === activeAudio) activeAudio = null;
+				segment.audio.pause();
+				segment.audio = null;
+			}
+			if (segment.url) {
+				URL.revokeObjectURL(segment.url);
+				segment.url = null;
+			}
+			segment.bar.classList.remove("show");
+			segment.fill.style.width = "0%";
+			syncSegmentPlayState(segment);
+		}
+		function toggleSegmentPlay(record, segment) {
+			if (!segment.complete || segment.busy || record.regenerating) return;
+			if (record.state === "playing") stopTimeline(record);
+			if (record.state !== "ready") return;
+			if (segment.audio && !segment.audio.paused) {
+				segment.audio.pause();
+				return;
+			}
+			stopActive();
+			stopTimeline(activeTimeline);
+			if (!segment.audio) {
+				const audio = new Audio(ensureSegmentUrl(record, segment));
+				audio.preservesPitch = true;
+				audio.mozPreservesPitch = true;
+				audio.webkitPreservesPitch = true;
+				audio.addEventListener("pause", () => syncSegmentPlayState(segment));
+				audio.addEventListener("ended", () => {
+					segment.bar.classList.remove("show");
+					segment.fill.style.width = "0%";
+					syncSegmentPlayState(segment);
+				});
+				audio.addEventListener("timeupdate", () => {
+					if (!Number.isFinite(audio.duration) || !audio.duration) return;
+					segment.fill.style.width = `${audio.currentTime / audio.duration * 100}%`;
+				});
+				segment.audio = audio;
+			}
+			segment.audio.playbackRate = playRate;
+			activeAudio = segment.audio;
+			segment.bar.classList.add("show");
+			segment.audio.play().then(() => syncSegmentPlayState(segment), () => syncSegmentPlayState(segment));
 		}
 		function dropAudio(record) {
 			if (record.audio) {
 				if (record.audio === activeAudio) activeAudio = null;
 				record.audio.pause();
 				record.audio = null;
+			}
+			for (const segment of record.segments) if (segment.audio) {
+				if (segment.audio === activeAudio) activeAudio = null;
+				segment.audio.pause();
+				segment.audio = null;
+				segment.bar.classList.remove("show");
+				segment.fill.style.width = "0%";
+				syncSegmentPlayState(segment);
 			}
 			record.fill.style.width = "0%";
 			record.bar.classList.remove("show");
@@ -1419,6 +1540,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 					bytes -= 1;
 				}
 				if (!records.includes(record)) return;
+				clearSegmentAudio(segment);
 				dropAudio(record);
 				segment.chunks = chunks;
 				segment.bytes = bytes;
@@ -1659,33 +1781,39 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 					if (!segment) segment = createSegment(record, piece);
 					return segment;
 				};
-				for (;;) {
-					const { done, value } = await reader.read();
-					if (done) break;
-					if (!value || !value.length || session.stopped) continue;
-					if (record.bytes + value.length > MAX_PCM_BYTES) continue;
-					let data = value;
-					if (leftover.length) {
-						data = new Uint8Array(leftover.length + value.length);
-						data.set(leftover);
-						data.set(value, leftover.length);
+				try {
+					for (;;) {
+						const { done, value } = await reader.read();
+						if (done) break;
+						if (!value || !value.length || session.stopped) continue;
+						if (record.bytes + value.length > MAX_PCM_BYTES) continue;
+						let data = value;
+						if (leftover.length) {
+							data = new Uint8Array(leftover.length + value.length);
+							data.set(leftover);
+							data.set(value, leftover.length);
+						}
+						const evenLength = data.length - data.length % 2;
+						if (evenLength) {
+							const part = data.subarray(0, evenLength);
+							const target = ensureSegment();
+							target.chunks.push(part);
+							target.bytes += evenLength;
+							record.bytes += evenLength;
+							schedulePcm(session, part);
+						}
+						leftover = data.subarray(evenLength);
 					}
-					const evenLength = data.length - data.length % 2;
-					if (evenLength) {
-						const part = data.subarray(0, evenLength);
-						const target = ensureSegment();
-						target.chunks.push(part);
-						target.bytes += evenLength;
-						record.bytes += evenLength;
-						schedulePcm(session, part);
+				} finally {
+					if (segment) {
+						segment.complete = true;
+						segment.durationEl.textContent = formatSegmentDuration(segment.bytes / 2 / record.sampleRate);
 					}
-					leftover = data.subarray(evenLength);
 				}
-				if (segment) segment.durationEl.textContent = formatSegmentDuration(segment.bytes / 2 / record.sampleRate);
 				flushPending(session);
 			};
 			const speak = async (piece) => {
-				const bytesBefore = record.bytes;
+				const segmentsBefore = record.segments.length;
 				for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) try {
 					const response = await takePrefetch(piece);
 					if (session.stopped) return "done";
@@ -1694,8 +1822,9 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 					return "done";
 				} catch (error) {
 					if (session.stopped || session.controller.signal.aborted) return "done";
+					if (record.segments.length > segmentsBefore) return "done";
 				}
-				if (record.bytes > bytesBefore) return "done";
+				if (record.segments.length > segmentsBefore) return "done";
 				const halves = splitInHalf(piece);
 				if (!halves) return "failed";
 				tasks.unshift(...halves);
