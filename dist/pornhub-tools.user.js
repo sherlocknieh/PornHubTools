@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PornhubTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.25.1648
+// @version      2026.11.25.1649
 // @description  增强一些XX网站的浏览体验
 // @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22%23000%22%20fill-opacity%3D%220.75%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2232%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%20font-size%3D%2232%22%20fill%3D%22%23fff%22%3EPH%3C%2Ftext%3E%0A%3C%2Fsvg%3E
 // @match        https://greasyfork.org/*
@@ -725,6 +725,7 @@
 		]
 	}];
 	var DEFAULT_VOICE = "mimo_default";
+	var DEFAULT_INPUT_TEXT = "你好，我是思畅。今天天气不错，想试试这段语音听起来怎么样，声音还清楚吗？";
 	var VOICE_STORE_KEY = "sichang-tts-voice";
 	var RATE_STORE_KEY = "sichang-tts-rate";
 	var FOLD_STORE_KEY = "sichang-tts-folded";
@@ -950,7 +951,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
             <span class="title">语音捕获</span>
             <span class="count">0</span>
             <span class="spacer"></span>
-            <select class="speed" aria-label="播放倍速" title="播放倍速（正在进行的实时朗读不受影响）">${PLAY_RATES.map((rate) => `<option value="${rate}">${rate}×</option>`).join("")}</select>
+            <select class="speed" aria-label="播放倍速" title="播放倍速（仅面板试听，保持音高）">${PLAY_RATES.map((rate) => `<option value="${rate}">${rate}×</option>`).join("")}</select>
             <button class="clear" hidden>清空</button>
             <button class="fold" aria-label="收起">−</button>
         </div>
@@ -1270,6 +1271,9 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 				stopTimeline(activeTimeline);
 				if (!record.audio) {
 					const audio = new Audio(record.url);
+					audio.preservesPitch = true;
+					audio.mozPreservesPitch = true;
+					audio.webkitPreservesPitch = true;
 					audio.addEventListener("pause", syncPlayState);
 					audio.addEventListener("ended", () => {
 						fill.style.width = "0%";
@@ -1494,6 +1498,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 			const savedRate = Number(localStorage.getItem(RATE_STORE_KEY));
 			if (savedRate >= .5 && savedRate <= 2) ui.rate.value = String(savedRate);
 		} catch {}
+		ui.input.value = DEFAULT_INPUT_TEXT;
 		function submitCompose() {
 			const text = ui.input.value.trim();
 			if (!text) {
@@ -1506,7 +1511,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 				localStorage.setItem(VOICE_STORE_KEY, voice);
 				localStorage.setItem(RATE_STORE_KEY, String(rate));
 			} catch {}
-			ui.input.value = "";
 			startSession({
 				text,
 				voice,
@@ -1539,12 +1543,11 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 			buffer.copyToChannel(samples, 0);
 			const source = context.createBufferSource();
 			source.buffer = buffer;
-			source.playbackRate.value = session.speed;
 			source.connect(context.destination);
 			const startAt = Math.max(session.playhead, context.currentTime + .06);
 			source.start(startAt);
 			if (session.timelineStart === null) session.timelineStart = startAt;
-			session.playhead = startAt + buffer.duration / session.speed;
+			session.playhead = startAt + buffer.duration;
 			source.onended = () => {
 				const index = session.sources.indexOf(source);
 				if (index >= 0) session.sources.splice(index, 1);
@@ -1597,7 +1600,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 				stopped: false,
 				playhead: 0,
 				started: false,
-				speed: playRate,
 				pending: [],
 				pendingBytes: 0,
 				timelineStart: null,

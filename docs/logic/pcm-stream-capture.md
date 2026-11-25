@@ -25,7 +25,7 @@
 - **不要用轮询或 DOM 监听**：按钮图标与 React 状态会变，接口才是稳定契约。
 - **下载完成 ≠ 播放结束**：合成速度远快于实时，整条会一次性排进时间线；UI 必须比较 `playhead` 与 `currentTime`，在播期间保留「停止」，否则长文本会有数分钟停不下来，点「播放」还会叠音。
 - **首段要预缓冲**：先攒 0.5 秒再起播，否则开头几个网络块到达间隔会在第一句里留下可听的补白。
-- **倍速要进时间线计算**：`source.playbackRate = speed`，`playhead += buffer.duration / speed`，否则后续块会按 1× 的时长排队，越快越重叠。实时时间线倍速在开始时固定；面板 WAV 用 `audio.playbackRate`，可随时切换且保持音高。
+- **倍速只给 WAV**：Web Audio 的 `AudioBufferSourceNode.playbackRate` 会连音高一起变，没有 `preservesPitch`；实时时间线固定 `1×`，面板 `<audio>` 用 `playbackRate + preservesPitch` 做变速不变调。
 - **分段要单独存**：每段的 PCM 与文本一起保存，WAV 按段拼接；否则无法只重生成一段。
 - **重生成要守住整条契约**：替换段后必须重建 WAV 和 blob URL，并停掉正在播放的旧音频；采样率与整条不一致时拒绝替换，避免拼出非法 WAV。
 

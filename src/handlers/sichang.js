@@ -38,11 +38,13 @@ const VOICE_GROUPS = [
     },
 ];
 const DEFAULT_VOICE = 'mimo_default';
+// 输入框预填的试听文本：短到一次合成就能听完，方便换音色反复试
+const DEFAULT_INPUT_TEXT = '你好，我是思畅。今天天气不错，想试试这段语音听起来怎么样，声音还清楚吗？';
 const VOICE_STORE_KEY = 'sichang-tts-voice';
 const RATE_STORE_KEY = 'sichang-tts-rate';
 const FOLD_STORE_KEY = 'sichang-tts-folded';
 const PLAY_RATE_STORE_KEY = 'sichang-tts-play-rate';
-// 播放倍速（不是合成语速）：实时时间线和面板 WAV 都按它播
+// 播放倍速（不是合成语速）：只作用于面板 WAV 试听，实时时间线固定 1×
 const PLAY_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
 const PANEL_CSS = `
@@ -260,7 +262,7 @@ function createPanel() {
             <span class="title">语音捕获</span>
             <span class="count">0</span>
             <span class="spacer"></span>
-            <select class="speed" aria-label="播放倍速" title="播放倍速（正在进行的实时朗读不受影响）">${speeds}</select>
+            <select class="speed" aria-label="播放倍速" title="播放倍速（仅面板试听，保持音高）">${speeds}</select>
             <button class="clear" hidden>清空</button>
             <button class="fold" aria-label="收起">−</button>
         </div>
@@ -422,7 +424,7 @@ export default function initSichangHandler() {
         try {
             localStorage.setItem(PLAY_RATE_STORE_KEY, String(value));
         } catch {}
-        // 正在试听的 WAV 立即换速；实时时间线保持开始时的倍速
+        // 正在试听的 WAV 立即换速
         for (const record of records) {
             if (record.audio) record.audio.playbackRate = value;
         }
@@ -612,6 +614,10 @@ export default function initSichangHandler() {
             stopTimeline(activeTimeline);
             if (!record.audio) {
                 const audio = new Audio(record.url);
+                // 变速不变调；不同浏览器前缀都设一遍
+                audio.preservesPitch = true;
+                audio.mozPreservesPitch = true;
+                audio.webkitPreservesPitch = true;
                 audio.addEventListener('pause', syncPlayState);
                 audio.addEventListener('ended', () => {
                     fill.style.width = '0%';
@@ -853,6 +859,8 @@ export default function initSichangHandler() {
         if (savedRate >= 0.5 && savedRate <= 2) ui.rate.value = String(savedRate);
     } catch {}
 
+    ui.input.value = DEFAULT_INPUT_TEXT;
+
     function submitCompose() {
         const text = ui.input.value.trim();
         if (!text) {
@@ -865,7 +873,7 @@ export default function initSichangHandler() {
             localStorage.setItem(VOICE_STORE_KEY, voice);
             localStorage.setItem(RATE_STORE_KEY, String(rate));
         } catch {}
-        ui.input.value = '';
+        // 不清空输入：换音色后可以直接再点合成，反复试听
         startSession({ text, voice, rate, format: 'pcm16' });
     }
 
@@ -898,12 +906,13 @@ export default function initSichangHandler() {
         buffer.copyToChannel(samples, 0);
         const source = context.createBufferSource();
         source.buffer = buffer;
-        source.playbackRate.value = session.speed;
+        // 实时时间线不做变速：Web Audio 的 playbackRate 会连音高一起升，
+        // 倍速只用于面板 WAV（<audio> 由浏览器做保音高变速）
         source.connect(context.destination);
         const startAt = Math.max(session.playhead, context.currentTime + 0.06);
         source.start(startAt);
         if (session.timelineStart === null) session.timelineStart = startAt;
-        session.playhead = startAt + buffer.duration / session.speed;
+        session.playhead = startAt + buffer.duration;
         // 播完就从时间线里摘掉，避免长文本攒下成千上万个节点
         source.onended = () => {
             const index = session.sources.indexOf(source);
@@ -965,8 +974,6 @@ export default function initSichangHandler() {
             stopped: false,
             playhead: 0,
             started: false,
-            // 实时时间线按开始时的面板倍速播放，中途改倍速只影响面板 WAV
-            speed: playRate,
             pending: [],
             pendingBytes: 0,
             timelineStart: null,
