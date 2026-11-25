@@ -38,12 +38,15 @@ const VOICE_GROUPS = [
     },
 ];
 const DEFAULT_VOICE = 'mimo_default';
+const VOICE_LABELS = new Map(VOICE_GROUPS.flatMap(group => group.voices.map(voice => [voice.id, voice.label])));
 // 输入框预填的试听文本：短到一次合成就能听完，方便换音色反复试
 const DEFAULT_INPUT_TEXT = '你好，我是思畅，今天天气不错。';
 const VOICE_STORE_KEY = 'sichang-tts-voice';
 const RATE_STORE_KEY = 'sichang-tts-rate';
 const FOLD_STORE_KEY = 'sichang-tts-folded';
 const PLAY_RATE_STORE_KEY = 'sichang-tts-play-rate';
+const DRAFT_STORE_KEY = 'sichang-tts-draft';
+const POS_STORE_KEY = 'sichang-tts-pos';
 // 播放倍速（不是合成语速）：只作用于面板 WAV 试听，实时时间线固定 1×
 const PLAY_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
@@ -62,42 +65,47 @@ const PANEL_CSS = `
 .head {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 9px 10px 9px 12px;
+    gap: 6px;
+    padding: 7px 8px 7px 10px;
     background: #1d1d22;
     border-bottom: 1px solid #2c2c33;
+    cursor: move;
+    user-select: none;
+    touch-action: none;
 }
-.title { font-weight: 600; }
+.panel.dragging { opacity: .92; }
+.title { font-size: 12px; font-weight: 600; }
+.grip { color: #5a5a64; font-size: 11px; letter-spacing: -1px; }
 .count {
-    min-width: 20px;
-    padding: 0 6px;
-    height: 18px;
-    line-height: 18px;
+    min-width: 18px;
+    padding: 0 5px;
+    height: 16px;
+    line-height: 16px;
     text-align: center;
-    border-radius: 9px;
+    border-radius: 8px;
     background: #3a3a44;
     color: #c9c9d1;
-    font-size: 11px;
+    font-size: 10px;
 }
 .spacer { flex: 1; }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
 button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .head button {
-    height: 22px;
-    padding: 0 7px;
+    height: 20px;
+    padding: 0 6px;
     border-radius: 6px;
     color: #a9a9b3;
-    font-size: 12px;
+    font-size: 11px;
 }
 .head button:hover { background: #2c2c33; color: #fff; }
 .head select {
-    height: 22px;
+    height: 20px;
     padding: 0 3px;
     border: 0;
     border-radius: 6px;
     background: #2a2a32;
     color: #a9a9b3;
-    font: 11px system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font: 10px system-ui, -apple-system, 'Segoe UI', sans-serif;
     cursor: pointer;
 }
 .compose { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-bottom: 1px solid #232329; }
@@ -112,8 +120,18 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     background: #101014;
     color: #e8e8ea;
     font: 12px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
-    resize: vertical;
+    resize: none;
 }
+.compose .counter {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    color: #6f6f79;
+    font-size: 10px;
+}
+.compose .counter .clearInput { color: #8a8a94; font-size: 10px; padding: 0 2px; }
+.compose .counter .clearInput:hover { color: #d5d5dd; }
 .compose textarea:focus, .compose select:focus, .compose input:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
 .compose textarea::placeholder { color: #6f6f79; }
 .compose .row { display: flex; align-items: center; gap: 6px; }
@@ -127,7 +145,8 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font: 12px system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 .compose select { flex: 1; min-width: 0; }
-.compose input.rate { width: 48px; text-align: center; }
+.compose input.rate { width: 48px; padding: 0 4px; text-align: center; }
+.compose .rateUnit { color: #80808a; font-size: 11px; margin-left: -3px; }
 .compose .go {
     height: 26px;
     padding: 0 14px;
@@ -157,8 +176,20 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    cursor: zoom-in;
 }
-.acts { display: flex; gap: 6px; }
+.txt.expanded { display: block; overflow: visible; white-space: pre-wrap; cursor: zoom-out; }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.tag {
+    padding: 0 5px;
+    height: 15px;
+    line-height: 15px;
+    border-radius: 4px;
+    background: #24242b;
+    color: #8a8a94;
+    font-size: 10px;
+}
+.acts { display: flex; flex-wrap: wrap; gap: 5px; }
 .acts button {
     height: 24px;
     padding: 0 8px;
@@ -244,6 +275,10 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 @media (max-width: 480px) {
     .panel { width: calc(100vw - 24px); }
 }
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
+    outline: 2px solid #5a9e6b;
+    outline-offset: 1px;
+}
 `;
 
 function createPanel() {
@@ -270,19 +305,25 @@ function createPanel() {
     `).join('');
     const speeds = PLAY_RATES.map(rate => `<option value="${rate}">${rate}×</option>`).join('');
     panel.innerHTML = `
-        <div class="head">
+        <div class="head" title="拖动移动，双击复位">
+            <span class="grip" aria-hidden="true">⠿</span>
             <span class="title">语音捕获</span>
             <span class="count">0</span>
             <span class="spacer"></span>
             <select class="speed" aria-label="播放倍速" title="播放倍速（仅面板试听，保持音高）">${speeds}</select>
-            <button class="clear" hidden>清空</button>
+            <button class="clear" hidden aria-label="清空全部记录">清空</button>
             <button class="fold" aria-label="收起">−</button>
         </div>
         <div class="compose">
             <textarea class="input" rows="2" placeholder="输入或粘贴文本，Ctrl+Enter 合成"></textarea>
+            <div class="counter">
+                <span class="stats">0 字 · 0 段</span>
+                <button class="clearInput" aria-label="清空输入">清空</button>
+            </div>
             <div class="row">
                 <select class="voice" aria-label="音色">${groups}</select>
                 <input class="rate" type="number" min="0.5" max="2" step="0.1" value="1" aria-label="语速" title="语速">
+                <span class="rateUnit" aria-hidden="true">×</span>
                 <button class="go">合成</button>
             </div>
         </div>
@@ -296,6 +337,7 @@ function createPanel() {
     return {
         host,
         panel,
+        head: panel.querySelector('.head'),
         list: panel.querySelector('.list'),
         empty: panel.querySelector('.empty'),
         count: panel.querySelector('.count'),
@@ -304,6 +346,8 @@ function createPanel() {
         speed: panel.querySelector('.speed'),
         compose: panel.querySelector('.compose'),
         input: panel.querySelector('.input'),
+        stats: panel.querySelector('.stats'),
+        clearInput: panel.querySelector('.clearInput'),
         voice: panel.querySelector('.voice'),
         rate: panel.querySelector('.rate'),
         go: panel.querySelector('.go'),
@@ -337,6 +381,41 @@ function pcmToWav(pcm, sampleRate) {
 function formatDuration(seconds) {
     const total = Math.max(0, Math.round(seconds));
     return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+function formatRate(rate) {
+    const value = Number(rate);
+    if (!Number.isFinite(value) || value <= 0) return '1×';
+    return `${Math.round(value * 10) / 10}×`;
+}
+
+// 剪贴板 API 在非安全上下文或权限被拒时不可用，退回临时 textarea
+function copyRecordText(text, button) {
+    const done = () => {
+        button.textContent = '已复制';
+        clearTimeout(button.copyTimer);
+        button.copyTimer = setTimeout(() => {
+            button.textContent = '复制';
+        }, 1200);
+    };
+    const fallback = () => {
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none;';
+        document.body.appendChild(area);
+        area.select();
+        let copied = false;
+        try {
+            copied = document.execCommand('copy');
+        } catch {}
+        area.remove();
+        if (copied) done();
+    };
+    if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).then(done, fallback);
+    } else {
+        fallback();
+    }
 }
 
 function previewText(text) {
@@ -393,19 +472,6 @@ export default function initSichangHandler() {
 
     const ui = createPanel();
 
-    // 站点把输入框钉在底部，300 宽的面板会正好盖住发送按钮；
-    // 检测到贴底输入框时把面板抬到它上方，没有输入框的页面维持 16px
-    function placePanel() {
-        const box = [...document.querySelectorAll('textarea, [contenteditable="true"]')].find(element => {
-            const rect = element.getBoundingClientRect();
-            return rect.width > 160 && rect.bottom > window.innerHeight - 160;
-        });
-        const bottom = box ? Math.max(16, window.innerHeight - box.getBoundingClientRect().top + 12) : 16;
-        ui.host.style.bottom = `${Math.round(bottom)}px`;
-    }
-    placePanel();
-    window.addEventListener('resize', placePanel);
-
     function applyFold(folded) {
         ui.panel.classList.toggle('folded', folded);
         ui.fold.textContent = folded ? '+' : '−';
@@ -413,11 +479,100 @@ export default function initSichangHandler() {
         try {
             localStorage.setItem(FOLD_STORE_KEY, folded ? '1' : '0');
         } catch {}
+        if (!folded) autoGrowInput();
     }
     ui.fold.addEventListener('click', () => applyFold(!ui.panel.classList.contains('folded')));
     try {
         if (localStorage.getItem(FOLD_STORE_KEY) === '1') applyFold(true);
     } catch {}
+
+    // 手动拖过的位置优先于自动避让；双击标题复位后恢复自动贴底
+    let manualPosition = false;
+    function clampPosition(left, top) {
+        const rect = ui.host.getBoundingClientRect();
+        return {
+            left: Math.max(4, Math.min(window.innerWidth - rect.width - 4, left)),
+            top: Math.max(4, Math.min(window.innerHeight - rect.height - 4, top)),
+        };
+    }
+    function applyPosition(position) {
+        ui.host.style.left = `${Math.round(position.left)}px`;
+        ui.host.style.top = `${Math.round(position.top)}px`;
+        ui.host.style.right = 'auto';
+        ui.host.style.bottom = 'auto';
+    }
+    function resetPosition() {
+        manualPosition = false;
+        try {
+            localStorage.removeItem(POS_STORE_KEY);
+        } catch {}
+        ui.host.style.left = '';
+        ui.host.style.top = '';
+        ui.host.style.right = '16px';
+        ui.host.style.bottom = '16px';
+        placePanel();
+    }
+
+    // 站点把输入框钉在底部，300 宽的面板会正好盖住发送按钮；
+    // 检测到贴底输入框时把面板抬到它上方，没有输入框的页面维持 16px
+    function placePanel() {
+        if (manualPosition) return;
+        const box = [...document.querySelectorAll('textarea, [contenteditable="true"]')].find(element => {
+            const rect = element.getBoundingClientRect();
+            return rect.width > 160 && rect.bottom > window.innerHeight - 160;
+        });
+        const bottom = box ? Math.max(16, window.innerHeight - box.getBoundingClientRect().top + 12) : 16;
+        ui.host.style.bottom = `${Math.round(bottom)}px`;
+    }
+
+    try {
+        const saved = JSON.parse(localStorage.getItem(POS_STORE_KEY) || 'null');
+        if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
+            applyPosition(clampPosition(saved.left, saved.top));
+            manualPosition = true;
+        }
+    } catch {}
+    placePanel();
+
+    // 拖动标题栏移动面板，双击复位；按钮和下拉不参与，避免误触
+    let drag = null;
+    ui.head.addEventListener('pointerdown', event => {
+        if (event.button !== 0 || event.target.closest('button, select')) return;
+        const rect = ui.host.getBoundingClientRect();
+        drag = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+        ui.head.setPointerCapture(event.pointerId);
+        ui.panel.classList.add('dragging');
+    });
+    ui.head.addEventListener('pointermove', event => {
+        if (!drag) return;
+        applyPosition(clampPosition(event.clientX - drag.dx, event.clientY - drag.dy));
+    });
+    function endDrag() {
+        if (!drag) return;
+        drag = null;
+        ui.panel.classList.remove('dragging');
+        manualPosition = true;
+        const rect = ui.host.getBoundingClientRect();
+        try {
+            localStorage.setItem(POS_STORE_KEY, JSON.stringify({ left: rect.left, top: rect.top }));
+        } catch {}
+    }
+    ui.head.addEventListener('pointerup', endDrag);
+    ui.head.addEventListener('pointercancel', endDrag);
+    ui.head.addEventListener('dblclick', event => {
+        if (event.target.closest('button, select')) return;
+        resetPosition();
+    });
+
+    const onResize = () => {
+        if (!manualPosition) {
+            placePanel();
+            return;
+        }
+        const rect = ui.host.getBoundingClientRect();
+        applyPosition(clampPosition(rect.left, rect.top));
+    };
+    window.addEventListener('resize', onResize);
     const records = [];
     let activeAudio = null;
     let activeSession = null;
@@ -563,8 +718,19 @@ export default function initSichangHandler() {
         mid.className = 'mid';
         const txt = document.createElement('div');
         txt.className = 'txt';
-        txt.textContent = previewText(text) || '（无文本）';
-        txt.title = text;
+        const preview = previewText(text) || '（无文本）';
+        txt.textContent = preview;
+        txt.title = '点击展开或收起全文';
+        // 记下这条用的音色和语速，重合成时也照着它提示，避免对不上
+        const tags = document.createElement('div');
+        tags.className = 'tags';
+        const voiceTag = document.createElement('span');
+        voiceTag.className = 'tag';
+        voiceTag.textContent = VOICE_LABELS.get(tts.voice) || tts.voice || '默认';
+        const rateTag = document.createElement('span');
+        rateTag.className = 'tag';
+        rateTag.textContent = `${formatRate(tts.rate)} 语速`;
+        tags.append(voiceTag, rateTag);
 
         const bar = document.createElement('div');
         bar.className = 'bar';
@@ -578,6 +744,12 @@ export default function initSichangHandler() {
         const playButton = document.createElement('button');
         playButton.textContent = '停止';
         playButton.setAttribute('aria-label', '停止合成');
+        const copyButton = document.createElement('button');
+        copyButton.textContent = '复制';
+        copyButton.setAttribute('aria-label', '复制原文');
+        const regenButton = document.createElement('button');
+        regenButton.textContent = '重合成';
+        regenButton.setAttribute('aria-label', '用面板当前音色重新合成');
         const downloadButton = document.createElement('button');
         downloadButton.textContent = '下载';
         downloadButton.setAttribute('aria-label', '下载 WAV');
@@ -586,7 +758,7 @@ export default function initSichangHandler() {
         deleteButton.className = 'del';
         deleteButton.textContent = '✕';
         deleteButton.setAttribute('aria-label', '删除');
-        acts.append(playButton, downloadButton, deleteButton);
+        acts.append(playButton, copyButton, regenButton, downloadButton, deleteButton);
 
         const segs = document.createElement('details');
         segs.className = 'segs';
@@ -601,7 +773,7 @@ export default function initSichangHandler() {
         segList.className = 'segList';
         segs.append(segSummary, segList);
 
-        mid.append(txt, acts, bar, segs);
+        mid.append(txt, tags, acts, bar, segs);
         row.append(meta, mid);
         ui.list.insertBefore(row, ui.list.firstChild);
         bar.classList.add('show');
@@ -668,6 +840,12 @@ export default function initSichangHandler() {
             link.remove();
         });
         deleteButton.addEventListener('click', () => removeRecord(record));
+        copyButton.addEventListener('click', () => copyRecordText(record.text, copyButton));
+        regenButton.addEventListener('click', () => resynthesizeRecord(record));
+        txt.addEventListener('click', () => {
+            const expanded = txt.classList.toggle('expanded');
+            txt.textContent = expanded ? text || '（无文本）' : preview;
+        });
 
         records.push(record);
         while (records.length > MAX_RECORDS) removeRecord(records[0]);
@@ -991,7 +1169,61 @@ export default function initSichangHandler() {
         } catch {}
     });
 
-    ui.input.value = DEFAULT_INPUT_TEXT;
+    function currentTts() {
+        const voice = ui.voice.value || DEFAULT_VOICE;
+        const rate = Math.min(2, Math.max(0.5, Number(ui.rate.value) || 1));
+        return { voice, rate };
+    }
+
+    // 输入区随内容长高，超过上限就内部滚动
+    function autoGrowInput() {
+        if (ui.panel.classList.contains('folded')) return;
+        ui.input.style.height = 'auto';
+        ui.input.style.height = `${Math.min(ui.input.scrollHeight + 2, 132)}px`;
+    }
+
+    function saveDraft() {
+        try {
+            localStorage.setItem(DRAFT_STORE_KEY, ui.input.value);
+        } catch {}
+    }
+
+    // 字数和分段数就是这次会发出的请求数，提前给个心理预期
+    function updateComposeMeta() {
+        const text = ui.input.value.trim();
+        const chars = text.replace(/\s/g, '').length;
+        const segments = splitText(text).length;
+        ui.stats.textContent = `${chars} 字 · ${segments} 段`;
+        ui.go.disabled = !text;
+    }
+
+    function onInputChange() {
+        autoGrowInput();
+        updateComposeMeta();
+        saveDraft();
+    }
+    ui.input.addEventListener('input', onInputChange);
+    ui.clearInput.addEventListener('click', () => {
+        ui.input.value = '';
+        onInputChange();
+        ui.input.focus();
+    });
+    ui.rate.addEventListener('change', () => {
+        const { rate } = currentTts();
+        ui.rate.value = String(rate);
+        try {
+            localStorage.setItem(RATE_STORE_KEY, String(rate));
+        } catch {}
+    });
+
+    try {
+        const draft = localStorage.getItem(DRAFT_STORE_KEY);
+        ui.input.value = draft === null ? DEFAULT_INPUT_TEXT : draft;
+    } catch {
+        ui.input.value = DEFAULT_INPUT_TEXT;
+    }
+    autoGrowInput();
+    updateComposeMeta();
 
     function submitCompose() {
         const text = ui.input.value.trim();
@@ -999,8 +1231,7 @@ export default function initSichangHandler() {
             ui.input.focus();
             return;
         }
-        const voice = ui.voice.value || DEFAULT_VOICE;
-        const rate = Math.min(2, Math.max(0.5, Number(ui.rate.value) || 1));
+        const { voice, rate } = currentTts();
         try {
             localStorage.setItem(VOICE_STORE_KEY, voice);
             localStorage.setItem(RATE_STORE_KEY, String(rate));
@@ -1010,6 +1241,12 @@ export default function initSichangHandler() {
     }
 
     ui.go.addEventListener('click', submitCompose);
+    // 换音色后不用重新粘贴文本：按面板当前音色和语速再合成一条
+    function resynthesizeRecord(record) {
+        if (!record.text) return;
+        const { voice, rate } = currentTts();
+        startSession({ text: record.text, voice, rate, format: 'pcm16' });
+    }
     // 面板里的按键不要冒泡到站点，避免触发站点自己的输入/发送快捷键
     ui.compose.addEventListener('keydown', event => {
         event.stopPropagation();
@@ -1021,6 +1258,8 @@ export default function initSichangHandler() {
     ui.compose.addEventListener('keyup', event => event.stopPropagation());
 
     ui.clear.addEventListener('click', () => {
+        if (!records.length) return;
+        if (!window.confirm(`确定清空全部 ${records.length} 条语音记录？此操作不可撤销。`)) return;
         for (const record of [...records]) removeRecord(record);
         activeAudio = null;
     });
@@ -1305,7 +1544,7 @@ export default function initSichangHandler() {
     };
 
     return () => {
-        window.removeEventListener('resize', placePanel);
+        window.removeEventListener('resize', onResize);
         window.fetch = originalFetch;
         for (const record of [...records]) removeRecord(record);
         activeAudio = null;
